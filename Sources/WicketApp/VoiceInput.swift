@@ -62,14 +62,10 @@ final class VoiceInput {
   @ObservationIgnored private var session: Task<Void, Never>?
   @ObservationIgnored private var timer: Task<Void, Never>?
   @ObservationIgnored private var generation = 0
-  @ObservationIgnored private let timingURL: URL?
   @ObservationIgnored private let runtime: RuntimeRecorder?
   @ObservationIgnored private(set) var shutdown: Task<Void, Never>?
-  @ObservationIgnored private let timingWriter: LatestWriter<String>
-  @ObservationIgnored private var timingSaved = false
   @ObservationIgnored private var firstAudio: ContinuousClock.Instant?
-  @ObservationIgnored private var firstTranscript: Duration?
-  @ObservationIgnored private var opened = ContinuousClock.now
+  @ObservationIgnored private var heardSpeech = false
   var startupDuration: Duration = .seconds(8)
   var shutdownDuration: Duration = .milliseconds(500)
   var silenceDuration: Duration = .seconds(60)
@@ -79,15 +75,10 @@ final class VoiceInput {
   var maximumDuration: Duration = .seconds(300)
 
   init(
-    transcriber: @escaping () -> any Transcriber, timingURL: URL? = nil, runtime: RuntimeRecorder? = nil,
+    transcriber: @escaping () -> any Transcriber, runtime: RuntimeRecorder? = nil,
     write: @escaping (String) -> Void
   ) {
-    self.timingURL = timingURL
     self.runtime = runtime
-    timingWriter = LatestWriter { text in
-      guard let timingURL else { return }
-      try? text.write(to: timingURL, atomically: true, encoding: .utf8)
-    }
     makeTranscriber = transcriber
     self.write = write
   }
@@ -100,12 +91,10 @@ final class VoiceInput {
     state = .starting
     generation += 1
     let current = generation
-    opened = .now
     VoiceLog.logger.log(
       "voice \(current, privacy: .public) start: \(allowBluetooth ? "manual" : "auto", privacy: .public)")
     firstAudio = nil
-    firstTranscript = nil
-    timingSaved = false
+    heardSpeech = false
     let source = makeTranscriber()
     transcriber = source
     let previous = shutdown
@@ -131,10 +120,7 @@ final class VoiceInput {
           case .transcript(let text):
             let text = Transcript.searchText(text)
             guard text.contains(where: { $0.isLetter || $0.isNumber }) else { continue }
-            if firstTranscript == nil {
-              firstTranscript = .now - opened
-              saveTiming()
-            }
+            heardSpeech = true
             write(text)
             scheduleStop()
           }
@@ -157,16 +143,6 @@ final class VoiceInput {
       }
     }
   }
-  private func saveTiming() {
-    guard timingURL != nil, !timingSaved else { return }
-    timingSaved = true
-    func milliseconds(_ value: Duration?) -> String {
-      value.map { "\(Int($0 / .milliseconds(1))) ms" } ?? "none"
-    }
-    timingWriter.submit(
-      "Last voice session: \(Date())\nOpen to first audio: \(milliseconds(firstAudio.map { $0 - opened }))\nOpen to first transcript: \(milliseconds(firstTranscript))\n"
-    )
-  }
   func stop(_ reason: VoiceStop) {
     // Dismissal ends the session the hint or error was for, even while voice is idle: without listening
     // on open, nothing else would clear them before the next visit. A denial stays, as the reason voice
@@ -180,7 +156,7 @@ final class VoiceInput {
     generation += 1
     let capture = transcriber?.stop() ?? VoiceCapture()
     VoiceLog.logger.log(
-      "voice \(attempt, privacy: .public) stop: \(reason.rawValue, privacy: .public), \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms, buffers \(capture.buffers, privacy: .public), format changes \(capture.formatChanges, privacy: .public)"
+      "voice \(attempt, privacy: .public) stop: \(reason.rawValue, privacy: .public), buffers \(capture.buffers, privacy: .public), format changes \(capture.formatChanges, privacy: .public)"
     )
     if let closing = transcriber?.shutdown {
       let deadline = ContinuousClock.now + shutdownDuration
@@ -195,7 +171,6 @@ final class VoiceInput {
       }
     }
     transcriber = nil
-    saveTiming()
     session?.cancel()
     session = nil
     timer?.cancel()
@@ -219,9 +194,8 @@ final class VoiceInput {
     // Past the hard limit a transcript stops capture itself: continuous speech (or a TV) would
     // otherwise keep replacing the timer before it gets to run.
     guard ContinuousClock.now < limit else { return stop(.limit) }
-    let waiting = firstTranscript == nil
-    let deadline = min(limit, waiting ? firstAudio + noSpeechDuration : .now + silenceDuration)
-    scheduleStop(at: deadline, reason: deadline == limit ? .limit : waiting ? .noSpeech : .silence)
+    let deadline = min(limit, heardSpeech ? .now + silenceDuration : firstAudio + noSpeechDuration)
+    scheduleStop(at: deadline, reason: deadline == limit ? .limit : heardSpeech ? .silence : .noSpeech)
   }
   private func scheduleStop(at deadline: ContinuousClock.Instant, reason: VoiceStop) {
     timer?.cancel()

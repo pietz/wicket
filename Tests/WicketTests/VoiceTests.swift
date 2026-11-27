@@ -49,7 +49,7 @@ import Testing
   let model = LauncherModel.testing(in: root, bundled: nil)
   let fake = FakeTranscriber()
   let input = PanelInput(
-    navigator: model.navigator, agent: model.agent, store: model.store, folder: root,
+    navigator: model.navigator, agent: model.agent, store: model.store,
     transcriber: { fake }, permissionFinished: {})
   input.arm()
   #expect(fake.bluetoothAllowed == [false])
@@ -84,7 +84,7 @@ import Testing
   let fake = FakeTranscriber()
   let navigator = model.navigator
   let input = PanelInput(
-    navigator: navigator, agent: model.agent, store: model.store, folder: root,
+    navigator: navigator, agent: model.agent, store: model.store,
     transcriber: { fake }, permissionFinished: {})
   #expect(!navigator.presentation.showsCard)
   input.arm()
@@ -795,30 +795,6 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
   await model.navigator.settled()
   #expect(try String(contentsOf: log, encoding: .utf8) == "2+4\n")
   await controller.finish()
-}
-
-@MainActor @Test func lastVoiceTimingContainsOnlyLatencyAndIsOverwritten() async throws {
-  let folder = try scratch()
-  defer { try? FileManager.default.removeItem(at: folder) }
-  let url = folder.appending(path: "voice-timing.txt")
-  let fake = FakeTranscriber()
-  let voice = VoiceInput(transcriber: { fake }, timingURL: url, write: { _ in })
-  voice.arm()
-  fake.feeds[0].yield(.audio(.now))
-  fake.feeds[0].yield(.transcript("private words"))
-  #expect(
-    await eventually {
-      (try? String(contentsOf: url, encoding: .utf8).contains("first transcript: none")) == false
-    })
-  let text = try String(contentsOf: url, encoding: .utf8)
-  #expect(text.contains("first audio:") && text.contains(" ms") && !text.contains("private words"))
-  voice.stop(.toggle)
-  voice.arm()
-  #expect(try String(contentsOf: url, encoding: .utf8) == text)  // Opening does no disk write.
-  voice.stop(.toggle)
-  #expect(
-    await eventually { (try? String(contentsOf: url, encoding: .utf8).contains("first audio: none")) == true }
-  )
 }
 
 @MainActor @Test func hideIsImmediateEvenWhenVoiceShutdownHangs() async throws {

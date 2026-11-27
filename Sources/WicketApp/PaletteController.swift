@@ -133,7 +133,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       if let address = Address(url: url) { navigator?.go(address) } else { NSWorkspace.shared.open(url) }
     }
     input = PanelInput(
-      navigator: navigator, agent: model.agent, store: model.store, folder: model.agent.folder,
+      navigator: navigator, agent: model.agent, store: model.store,
       transcriber: transcriber, runtime: model.runtime,
       permissionFinished: { [weak panel] in
         guard let panel, panel.isVisible else { return }

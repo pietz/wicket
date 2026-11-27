@@ -36,10 +36,9 @@ Let the agent invoke enabled extensions as tools during a turn and embed their l
 ## 7. Diagnostics cuts
 
 In order:
-1. Remove per-session `voice-timing.txt` writes while keeping the first-transcript marker.
-2. Put the bounded private agent wire log behind an off-by-default switch.
-3. Give agent transport one close path with a bounded final drain and one missing-outcome diagnostic.
-4. Remove redundant checks within uninterrupted actor turns; simplify failed session resume; simplify final process escalation while keeping process regression checks.
+1. Put the bounded private agent wire log behind an off-by-default switch.
+2. Give agent transport one close path with a bounded final drain and one missing-outcome diagnostic.
+3. Remove redundant checks within uninterrupted actor turns; simplify failed session resume; simplify final process escalation while keeping process regression checks.
 
 ## 8. Agent Client Protocol as the only agent connection
 
