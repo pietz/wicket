@@ -443,51 +443,17 @@ private func path(_ folder: URL) -> String { folder.resolvingSymlinksInPath().pa
   try JSONSerialization.data(withJSONObject: manifest).write(to: manifestURL)
   let calculator = extensions.appending(path: "calculator")
   try FileManager.default.copyItem(at: bundledExtensions.appending(path: "calculator"), to: calculator)
-  try Data("another build".utf8).write(to: calculator.appending(path: "main"))
-  let id = "extension:calculator"
-  let builtIn = bundledExtensions.appending(path: "calculator")
-  var locations: [String: ExtensionHost.Location]
-  (commands, problems, locations) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
-  let version = try #require(commands[id]?.manifest.version?.rawValue)
+  (commands, problems, _) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
   #expect(path(commands["extension:units"]) == path(old))
-  #expect(path(commands[id]) == path(builtIn))
-  #expect(locations[id]?.copyStatus == .sameAsBuiltIn)
-  #expect(locations[id]?.copySummary == "Same as built-in")
-  #expect(locations[id]?.localCopy.map { path($0.folder) } == path(calculator))
-  #expect(problems.isEmpty)
-  try Data("// Extra source".utf8).write(to: calculator.appending(path: "Custom.swift"))
-  (commands, problems, locations) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
-  #expect(path(commands[id]) == path(calculator))
-  #expect(locations[id]?.copyStatus == .changed)
-  #expect(locations[id]?.copySummary == "Based on \(version) · Changed")
+  #expect(path(commands["extension:calculator"]) == path(calculator))
   #expect(problems.isEmpty)
   try Data("{".utf8).write(to: calculator.appending(path: "wicket.json"))
-  (commands, problems, locations) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
-  #expect(path(commands[id]) == path(builtIn))
-  #expect(locations[id]?.copySummary == "Based on an earlier version")
+  (commands, problems, _) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
+  #expect(path(commands["extension:calculator"]) == path(bundledExtensions.appending(path: "calculator")))
   #expect(problems.count == 1)
-  let problem = try #require(problems[id])
+  let problem = try #require(problems["extension:calculator"])
   #expect(problem.usingBundled)
   #expect(problem.detail.contains("Invalid wicket.json"))
-}
-
-@Test(arguments: [
-  ("1.2.0", "Based on 1.2.0 · Built-in is 1.10.0"),
-  ("1.10.0-rc.9", "Based on 1.10.0-rc.9 · Built-in is 1.10.0"),
-  ("1.10.1", "Newer than built-in · update Wicket"),
-])
-func aLocalCopyKeepsRunningWhenItsBaseVersionDiffers(version: String, summary: String) throws {
-  let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
-  let local = try extensionFolder(root, name: "sample", fields: ["version": version])
-  let bundled = try extensionFolder(
-    root.appending(path: "bundle"), name: "sample", fields: ["version": "1.10.0"])
-  let id = "extension:sample"
-  let (commands, problems, locations) = ExtensionHost.discover(
-    local.deletingLastPathComponent(), bundled: bundled.deletingLastPathComponent())
-  #expect(problems.isEmpty)
-  #expect(path(commands[id]) == path(local))
-  #expect(locations[id]?.copySummary == summary)
 }
 
 @Test func localeNumberMarksSendNoSeparatorWhenGroupingIsOff() {

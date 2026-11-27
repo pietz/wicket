@@ -480,7 +480,7 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
     ])
 }
 
-@MainActor @Test func copyActionsDraftMergesAndRestoreBundledSettings() async throws {
+@MainActor @Test func shadowBannerActionsUseTheLocalCopyAndRestoreBundledSettings() async throws {
   let root = try scratch()
   let files = FileManager.default
   defer { try? files.removeItem(at: root) }
@@ -501,12 +501,11 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   let id = "extension:window"
   let location = try #require(host.locations[id])
   let builtIn = try #require(location.bundledFolder)
-  let version = try #require(location.builtInVersion?.rawValue)
-  #expect(location.copyStatus == .behind)
+  #expect(location.shadowsBuiltIn)
   #expect(host.commands[id]?.folder == location.localFolder)
   #expect(!Edition.sameFolder(builtIn, local))
-  #expect(host.locations["extension:custom"]?.copyStatus == nil)
-  #expect(host.locations["extension:calculator"]?.copyStatus == nil)
+  #expect(host.locations["extension:custom"]?.shadowsBuiltIn == false)
+  #expect(host.locations["extension:calculator"]?.shadowsBuiltIn == false)
 
   var prompts: [String] = []
   var revealed: [URL] = []
@@ -549,30 +548,19 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   #expect(prompts.count == 1)
   #expect(prompt.contains(try #require(location.localFolder).path) && prompt.contains(builtIn.path))
   #expect(prompt.contains("current built-in version") && prompt.contains("my saved settings and hotkeys"))
-  #expect(prompt.contains("(contract 2)") && prompt.contains("based on version 0.9.0"))
   #expect(prompt.contains("https://github.com/pietz/wicket/tree/window/v0.9.0/Sources/Extensions/window"))
-  #expect(prompt.contains("two-way merge") && prompt.contains("untagged"))
-  #expect(
-    prompt.contains("Set `version` in `wicket.json` to \(version)") && prompt.contains("--extension window"))
+  #expect(prompt.contains("Resolve shared-source symlinks from the tag"))
+  #expect(prompt.contains("Wicket --diagnose extensions") && prompt.contains("activeFolder"))
   #expect(model.navigator.input == prompt)
   #expect(model.agent.active && model.agent.question.isEmpty && !model.agent.busy)
 
-  _ = try extensionFolder(root, name: "window", fields: ["contract": 1, "version": "0.9.0"])
-  await host.reload()
-  #expect(host.problems[id]?.usingBundled == true)
-  pane.askAgentToMerge(id)
-  let broken = try #require(prompts.last)
-  #expect(prompts.count == 2)
-  #expect(broken.contains("(contract 1)") && broken.contains("(contract 2)"))
-  #expect(broken.contains("/tree/window/v0.9.0/"))
-
-  try Data("{".utf8).write(to: local.appending(path: "wicket.json"))
+  _ = try extensionFolder(root, name: "window", fields: ["contract": 1])
   await host.reload()
   pane.askAgentToMerge(id)
-  let unknown = try #require(prompts.last)
-  #expect(prompts.count == 3)
-  #expect(unknown.contains("(contract unknown)") && unknown.contains("(contract 2)"))
-  #expect(unknown.contains("base version is unknown. Do a two-way merge"))
+  let repair = try #require(prompts.last)
+  #expect(prompts.count == 2 && host.problems[id]?.usingBundled == true)
+  #expect(
+    repair.contains("two-way merge") && repair.contains("(contract 1)") && repair.contains("(contract 2)"))
 
   let localCopy = try #require(host.locations[id]?.localCopy)
   host.moveToTrash = { _ in throw CocoaError(.fileWriteNoPermission) }
@@ -603,21 +591,15 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   let broken = root.appending(path: "extensions/broken")
   try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: true)
   try Data("{".utf8).write(to: broken.appending(path: "wicket.json"))
-  let calculator = root.appending(path: "extensions/calculator")
-  try FileManager.default.copyItem(at: bundledExtensions.appending(path: "calculator"), to: calculator)
   await host.reload()
   #expect(host.problems["extension:broken"] != nil)
-  #expect(host.locations["extension:calculator"]?.copyStatus == .sameAsBuiltIn)
-  #expect(throws: ExtensionFailure.self) { try host.trash("extension:shell") }
-  for id in ["extension:echo", "extension:broken", "extension:calculator"] { try host.trash(id) }
+  #expect(host.ownFolder("extension:calculator") == nil)
+  #expect(throws: ExtensionFailure.self) { try host.trash("extension:calculator") }
+  for id in ["extension:echo", "extension:broken"] { try host.trash(id) }
   await host.reload()
   #expect(host.commands["extension:echo"] == nil && host.problems["extension:broken"] == nil)
   #expect(
-    host.commands["extension:calculator"] != nil && host.locations["extension:calculator"]?.copyStatus == nil)
-  #expect(
-    try FileManager.default.contentsOfDirectory(atPath: trash.path).sorted() == [
-      "broken", "calculator", "echo",
-    ])
+    try FileManager.default.contentsOfDirectory(atPath: trash.path).sorted() == ["broken", "echo"])
 }
 
 @MainActor @Test(arguments: [false, true])
@@ -644,7 +626,7 @@ func retiredCopiesCanBeTrashedWithoutMovingUnrelatedFiles(keepItems: Bool) async
   await host.reload()
   let builtIn = try #require(host.commands[id])
   #expect(builtIn.folder == host.locations[id]?.bundledFolder && host.problems[id] == nil)
-  #expect(host.locations[id]?.copyStatus == .unknownBase)
+  #expect(host.locations[id]?.shadowsBuiltIn == false)
   #expect(host.locations[id]?.localCopy?.retired == true)
   #expect(host.ownFolder(id).map { Edition.sameFolder($0, local) } == true)
 
@@ -686,7 +668,7 @@ func retiredCopiesCanBeTrashedWithoutMovingUnrelatedFiles(keepItems: Bool) async
   await host.reload()
   let confirmed = try #require(host.locations[id]?.localCopy)
   #expect(confirmed.retired)
-  // Replaced by a versioned copy while the dialog was open.
+  // Repaired into a valid override while the dialog was open.
   try files.removeItem(at: local)
   try files.copyItem(at: bundledExtensions.appending(path: "units"), to: local)
   await host.reload()

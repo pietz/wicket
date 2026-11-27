@@ -112,8 +112,8 @@ for manifest in Sources/Extensions/*/wicket.json; do
   tag="${folder:t}/v$extension_version"
   if ! git show-ref --verify --quiet "refs/tags/$tag"; then
     print -r -- "  git tag $tag"
-    print -r -- "  git push origin $tag"
   fi
+  print -r -- "  git push origin refs/tags/$tag"
 done
 cat <<EOF
   gh release create v$version "$dmg" --verify-tag --prerelease --title "Wicket $version" --notes-file "$notes"

@@ -92,11 +92,6 @@ func writeQuicklinks(in root: URL) throws {
   try FileManager.default.createDirectory(
     at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
   try FileManager.default.copyItem(at: bundledExtensions.appending(path: "links-search"), to: folder)
-  let manifestURL = folder.appending(path: "wicket.json")
-  var manifest = try #require(
-    JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any])
-  manifest["description"] = "Opens test links."
-  try JSONSerialization.data(withJSONObject: manifest).write(to: manifestURL)
   let binary = folder.appending(path: "main")
   try FileManager.default.removeItem(at: binary)
   let favicon =

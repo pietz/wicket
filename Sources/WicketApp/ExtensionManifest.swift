@@ -54,46 +54,30 @@ struct ExtensionManifest: Decodable, Sendable, Equatable {
       let value = try decoder.singleValueContainer()
       let raw = try value.decode(String.self)
       let number = "(?:0|[1-9][0-9]*)"
-      let identifier = "[0-9A-Za-z-]+"
-      let identifiers = "\(identifier)(?:\\.\(identifier))*"
-      let pattern = "\\A\(number)\\.\(number)\\.\(number)(?:-\(identifiers))?(?:\\+\(identifiers))?\\z"
+      let prerelease = "(?:\(number)|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+      let build = "[0-9A-Za-z-]+"
+      let pattern =
+        "\\A\(number)\\.\(number)\\.\(number)"
+        + "(?:-\(prerelease)(?:\\.\(prerelease))*)?(?:\\+\(build)(?:\\.\(build))*)?\\z"
       guard raw.range(of: pattern, options: .regularExpression) != nil else {
         throw DecodingError.dataCorruptedError(
           in: value, debugDescription: "version must be a semantic version")
       }
       rawValue = raw
-      guard
-        !parts.prerelease.contains(where: { $0.count > 1 && $0.first == "0" && $0.allSatisfy(\.isNumber) })
-      else {
-        throw DecodingError.dataCorruptedError(in: value, debugDescription: "version has a leading zero")
-      }
-    }
-
-    private var parts: (core: [Substring], prerelease: [Substring]) {
-      let withoutBuild = rawValue.split(separator: "+", maxSplits: 1)[0]
-      let parts = withoutBuild.split(separator: "-", maxSplits: 1)
-      return (parts[0].split(separator: "."), parts.dropFirst().first?.split(separator: ".") ?? [])
     }
 
     func precedes(_ other: Self) -> Bool {
-      let lhs = parts
-      let rhs = other.parts
-      if lhs.core != rhs.core { return Self.precedes(lhs.core, rhs.core) }
-      if lhs.prerelease.isEmpty || rhs.prerelease.isEmpty {
-        return !lhs.prerelease.isEmpty && rhs.prerelease.isEmpty
+      func identifiers(_ version: String) -> [Substring] {
+        let parts = version.prefix(while: { $0 != "+" }).split(separator: "-", maxSplits: 1)
+        // A release sorts after every prerelease identifier.
+        return parts[0].split(separator: ".") + (parts.count == 1 ? ["~"] : parts[1].split(separator: "."))
       }
-      return Self.precedes(lhs.prerelease, rhs.prerelease)
-    }
-
-    private static func precedes(_ lhs: [Substring], _ rhs: [Substring]) -> Bool {
-      for (a, b) in zip(lhs, rhs) where a != b {
-        let aNumber = a.allSatisfy(\.isNumber)
-        let bNumber = b.allSatisfy(\.isNumber)
-        if aNumber != bNumber { return aNumber }
-        if aNumber && a.count != b.count { return a.count < b.count }
-        return a < b
+      func order(_ value: Substring) -> (Int, Substring) {
+        (value.allSatisfy(\.isNumber) ? value.count : .max, value)
       }
-      return lhs.count < rhs.count
+      return identifiers(rawValue).lexicographicallyPrecedes(identifiers(other.rawValue)) {
+        order($0) < order($1)
+      }
     }
   }
 

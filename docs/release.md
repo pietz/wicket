@@ -45,7 +45,7 @@ The script:
 4. Notarizes (`notarytool` profile `wicket-notary`), staples, and assesses with `spctl`.
 5. Signs for Sparkle (`wicket` key) and prepends the item to `appcast.xml`, with the notes as its Markdown `<description>` (what Sparkle's update window shows).
 6. Updates version and SHA-256 in `Casks/wicket.rb`.
-7. Prints commands to commit, tag and push the app version, then tag and push each newly released built-in version as `<id>/v<version>` (for example `units/v1.0.0`). Extension tags give the agent the source for that merge base. The remaining commands create the GitHub release with the DMG and notes, push `main` so the appcast goes live after the DMG, and publish the cask from `../homebrew-wicket`.
+7. Prints commands to commit, tag and push the app version, create missing built-in version tags such as `units/v1.0.0`, and push each built-in version tag. These tags give the agent its merge bases. The remaining commands create the GitHub release with the DMG and notes, push `main` so the appcast goes live after the DMG, and publish the cask from `../homebrew-wicket`.
 
 If notarization fails, `appcast.xml` and `Casks/wicket.rb` stay untouched; revert `Resources/Info.plist` with `git checkout Resources/Info.plist`. Sparkle shows the notes embedded in `appcast.xml`; editing the GitHub release later does not change them.
 

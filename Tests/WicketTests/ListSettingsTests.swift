@@ -528,17 +528,9 @@ func pendingMigrationResumesAtTheRecordedDestination(published: Bool) async thro
   await model.finish()
 }
 
-@MainActor @Test(arguments: [false, true])
-func savedWindowMovesMigrateInPlaceWithoutChangingTheirBindings(linkedCopy: Bool) async throws {
+@MainActor @Test func savedWindowMovesMigrateInPlaceWithoutChangingTheirBindings() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
-  if linkedCopy {
-    let extensions = root.appending(path: "extensions")
-    try FileManager.default.createDirectory(at: extensions, withIntermediateDirectories: true)
-    try FileManager.default.createSymbolicLink(
-      at: extensions.appending(path: "window"),
-      withDestinationURL: bundledExtensions.appending(path: "window"))
-  }
   let file = ConfigurationFile(url: root.appending(path: "config.json"))
   let target = try #require(HotkeyTarget("wicket://window?entry=moves/legacy"))
   let shortcut = try Shortcut("ctrl+option+1")
@@ -560,7 +552,6 @@ func savedWindowMovesMigrateInPlaceWithoutChangingTheirBindings(linkedCopy: Bool
   let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
   model.store.start(watching: false)
   await model.extensions.reload()
-  #expect(model.extensions.locations["extension:window"]?.copyStatus == (linkedCopy ? .sameAsBuiltIn : nil))
 
   let saved = try Configuration.load(at: file.url)
   #expect(saved.hotkeys == [.init(keys: shortcut, target: target)])
