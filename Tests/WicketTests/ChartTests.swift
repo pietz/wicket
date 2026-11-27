@@ -286,3 +286,12 @@ struct ChartTests {
     #expect(code.ranges(of: "&lt;chart&gt;").count == 2)
   }
 }
+
+/// Hardware-matched accents have their own `AppleAccentColor` indices; their hue still picks the skip.
+@Test(arguments: [
+  (211.0, 1.0, "4"), (348.0, 0.5, "0"), (30.0, 0.9, "1"), (130.0, 0.8, "3"), (280.0, 0.7, "5"),
+  (330.0, 0.8, "6"), (5.0, 0.9, "0"), (60.0, 0.9, "2"), (200.0, 0.05, ""),
+])
+func accentHueFamiliesMatchTheSkippedSystemColour(hue: Double, saturation: Double, family: String) {
+  #expect(AnswerRenderer.accentFamily(hue: hue, saturation: saturation) == family)
+}

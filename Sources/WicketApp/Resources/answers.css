@@ -40,7 +40,7 @@
   color: var(--ink);
   background: transparent;
 }
-/* AppleAccentColor indices: skip green (3), purple (5), orange (1) or pink (6).
+/* Accent hue families, numbered like AppleAccentColor: skip green (3), purple (5), orange (1) or pink (6).
    Red (0) also skips pink because the hues are close. Blue supplies the last slot. */
 :root[data-accent="3"] {
   --chart-2: -apple-system-purple;

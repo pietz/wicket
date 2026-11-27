@@ -100,7 +100,7 @@ final class AnswerRenderer {
   private var renderedStreaming = false
   private var cssRevision = 0
   private var appliedCSS = -1
-  private var accent = UserDefaults.standard.string(forKey: "AppleAccentColor") ?? ""
+  private var accent = AnswerRenderer.accentFamily()
   private var appliedIcons = ""
   /// Where each page was scrolled when another replaced it, so going back to it returns there.
   private var positions: [String: Double] = [:]
@@ -132,6 +132,19 @@ final class AnswerRenderer {
       contentsOf: Bundle.wicket.url(forResource: "answers", withExtension: "css")!, encoding: .utf8)
     let own = (try? String(contentsOf: folder.appending(path: "theme.css"), encoding: .utf8)) ?? ""
     return "@layer wicket {\n\(base)\n}\n\(own)"
+  }
+  /// The accent's hue family, numbered like `AppleAccentColor`, so charts skip the matching system colour.
+  /// Read from the resolved colour: hardware-matched accents have their own indices. Neutral is empty.
+  static func accentFamily() -> String {
+    guard let color = NSColor.accentSRGB(dark: false) else { return "" }
+    return accentFamily(hue: color.hueComponent * 360, saturation: color.saturationComponent)
+  }
+  nonisolated static func accentFamily(hue: CGFloat, saturation: CGFloat) -> String {
+    guard saturation > 0.15 else { return "" }
+    let families: [(upTo: CGFloat, index: String)] = [
+      (15, "0"), (45, "1"), (70, "2"), (170, "3"), (250, "4"), (300, "5"), (345, "6"),
+    ]
+    return families.first { hue < $0.upTo }?.index ?? "0"
   }
   // WebKit can pin AccentColor to blue to avoid exposing system preferences to websites.
   private static func chartAccent(dark: Bool) -> String {
@@ -329,7 +342,7 @@ final class AnswerRenderer {
   }
   func opened() {
     releaseTask?.cancel()
-    let currentAccent = UserDefaults.standard.string(forKey: "AppleAccentColor") ?? ""
+    let currentAccent = Self.accentFamily()
     if currentAccent != accent {
       accent = currentAccent
       cssRevision += 1
