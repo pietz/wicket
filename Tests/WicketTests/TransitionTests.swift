@@ -346,7 +346,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 
 @MainActor @Test(arguments: [false, true])
 func aProgramListSwitchesContentAndHeightTogether(passesDeadline: Bool) async throws {
-  let (model, _, root) = try await transitions()
+  // A slow command that settles empty keeps its one-row card height.
+  let (model, _, root) = try await transitions(answer: passesDeadline ? #"{"items":[]}"# : finished)
   defer { try? FileManager.default.removeItem(at: root) }
   let trace = Trace(model)
   model.navigator.arrivalDeadline = passesDeadline ? .milliseconds(30) : .seconds(60)
@@ -365,9 +366,11 @@ func aProgramListSwitchesContentAndHeightTogether(passesDeadline: Bool) async th
   try release(root)
   await model.navigator.settled()
   expected.append(
-    .init(
-      screen: "extension:slow", input: "", rows: ["Finished"], selection: "Finished", busy: false,
-      height: one))
+    passesDeadline
+      ? .init(screen: "extension:slow", input: "", rows: [], busy: false, height: one)
+      : .init(
+        screen: "extension:slow", input: "", rows: ["Finished"], selection: "Finished", busy: false,
+        height: one))
   #expect(trace.frames == expected)
   let sent = try logged(root)
   #expect(sent.count == 1 && sent[0].submitted && sent[0].input.isEmpty)

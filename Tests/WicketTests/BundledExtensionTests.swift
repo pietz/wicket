@@ -452,3 +452,10 @@ private func path(_ folder: URL) -> String { folder.resolvingSymlinksInPath().pa
   #expect(problem.usingBundled)
   #expect(problem.detail.contains("Invalid wicket.json"))
 }
+
+@Test func localeNumberMarksSendNoSeparatorWhenGroupingIsOff() {
+  let posix = ProviderRequest.NumberMarks.localized(Locale(identifier: "en_US_POSIX"))
+  #expect(posix.grouping == "" && posix.decimal == ".")
+  let indian = ProviderRequest.NumberMarks.localized(Locale(identifier: "en_IN"))
+  #expect(indian.grouping == "," && indian.groupingSize == "3" && indian.secondaryGroupingSize == "2")
+}

@@ -34,8 +34,10 @@ struct ProviderRequest: Codable, Sendable, Equatable {
       formatter.numberStyle = .decimal
       let primary = formatter.groupingSize
       let secondary = formatter.secondaryGroupingSize
+      // en_US_POSIX reports a "," separator while grouping is off.
+      let grouping = formatter.usesGroupingSeparator ? locale.groupingSeparator ?? "" : ""
       return Self(
-        decimal: locale.decimalSeparator ?? ".", grouping: locale.groupingSeparator ?? "",
+        decimal: locale.decimalSeparator ?? ".", grouping: grouping,
         groupingSize: String(primary), secondaryGroupingSize: String(secondary > 0 ? secondary : primary))
     }
   }
