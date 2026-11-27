@@ -643,6 +643,7 @@ struct SettingsPane: View {
         "My copy’s base version is unknown. Do a two-way merge between my copy and the current built-in."
     }
     let version = location.builtInVersion.map { "Set `version` in `wicket.json` to \($0.rawValue). " } ?? ""
+    let wicket = (Bundle.main.executableURL?.path ?? "Wicket").debugDescription
     recorder.stop()
     openMergeConversation(
       """
@@ -650,8 +651,8 @@ struct SettingsPane: View {
       onto the current built-in version at \(builtIn.path.debugDescription) (contract \(bundledContract)). \
       Read the extension contract first. \(strategy) Keep my customizations, the built-in’s current \
       features, and my saved settings and hotkeys. Write the merge to my local folder. \(version)Rebuild, \
-      then run `Wicket --diagnose extensions` to verify the discovery error is gone and `activeFolder` \
-      is my local copy. Exercise the customized behavior with `Wicket --extension \(name)`.
+      then run `\(wicket) --diagnose extensions` to verify the discovery error is gone and `activeFolder` \
+      is my local copy. Exercise the customized behavior with `\(wicket) --extension \(name)`.
       """)
   }
   private func completeListRoute(

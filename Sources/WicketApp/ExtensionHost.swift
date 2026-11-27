@@ -282,9 +282,11 @@ final class ExtensionHost {
   }
 
   /// Bookmarks keep their native open action. The submitted cache request runs only if it succeeds.
+  /// Copies from before versions predate `cache-icon` and would start a process on every open.
   func cacheBookmarkIcon(_ url: URL, from result: Result?) {
     guard result?.provider == Self.quicklinksID, result?.row.entryList == "links",
-      let command = commands[Self.quicklinksID], let site = QuicklinkSite(url)
+      let command = commands[Self.quicklinksID], command.manifest.version != nil,
+      let site = QuicklinkSite(url)
     else { return }
     Task {
       let file = site.favicon(in: runner.dataDirectory(for: command.id))

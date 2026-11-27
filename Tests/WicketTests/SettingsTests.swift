@@ -550,7 +550,7 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   #expect(prompt.contains("current built-in version") && prompt.contains("my saved settings and hotkeys"))
   #expect(prompt.contains("https://github.com/pietz/wicket/tree/window/v0.9.0/Sources/Extensions/window"))
   #expect(prompt.contains("Resolve shared-source symlinks from the tag"))
-  #expect(prompt.contains("Wicket --diagnose extensions") && prompt.contains("activeFolder"))
+  #expect(prompt.contains("\" --diagnose extensions") && prompt.contains("activeFolder"))
   #expect(model.navigator.input == prompt)
   #expect(model.agent.active && model.agent.question.isEmpty && !model.agent.busy)
 
