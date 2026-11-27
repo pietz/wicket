@@ -82,7 +82,7 @@ struct ConfirmationView: View {
           } else {
             Text(path).truncationMode(.middle)
           }
-        }.lineLimit(1).foregroundStyle(.secondary)
+        }.lineLimit(1).foregroundStyle(Ink.secondary)
       }
       if let consequence = content.consequence { Text(consequence).fontWeight(.medium) }
       DisclosureGroup("Show details", isExpanded: $expanded) {

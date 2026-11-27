@@ -24,7 +24,7 @@ struct SearchField: NSViewRepresentable {
     field.isBordered = false
     field.drawsBackground = false
     field.font = .systemFont(ofSize: size)
-    field.textColor = .labelColor
+    field.textColor = .textColor
     field.focusRingType = .none
     field.usesSingleLineMode = true
     field.lineBreakMode = .byClipping
@@ -265,7 +265,7 @@ struct LauncherView: View {
     renderer = panel.renderer
   }
   var body: some View {
-    if panel != nil { content }
+    if panel != nil { content.foregroundStyle(Ink.primary) }
   }
   private var content: some View {
     ZStack(alignment: .top) {
@@ -281,7 +281,7 @@ struct LauncherView: View {
         HStack(spacing: 12) {
           Image(systemName: agent != nil ? "sparkles" : "magnifyingglass").font(
             .system(size: 19, weight: .medium)
-          ).foregroundStyle(.secondary).frame(width: 24)
+          ).foregroundStyle(Ink.secondary).frame(width: 24)
           InputBar {
             inputField
             ForEach(navigator.fieldSlots, id: \.name) { fieldSlot($0) }
@@ -291,7 +291,7 @@ struct LauncherView: View {
           .contentShape(Rectangle())
           .onTapGesture { navigator.focusedField = nil }
           if let status = input.bluetoothHint ?? shown.pillStatus {
-            Text(status).font(.system(size: 12)).foregroundStyle(.secondary)
+            Text(status).font(.system(size: 12)).foregroundStyle(Ink.secondary)
               .lineLimit(1).frame(maxWidth: PaletteLayout.width / 2, alignment: .trailing).fixedSize()
               .help(status)
           }
@@ -300,7 +300,7 @@ struct LauncherView: View {
               input.toggle()
             } label: {
               Image(systemName: input.voice?.state == .listening ? "mic.fill" : "mic")
-                .font(.system(size: 18)).foregroundStyle(input.speaking ? Color.accentColor : Color.secondary)
+                .font(.system(size: 18)).foregroundStyle(input.speaking ? Color.accentColor : Ink.secondary)
             }.buttonStyle(.plain)
               .help(input.speaking ? "Stop listening" : "Start listening")
               .accessibilityLabel(input.speaking ? "Stop listening" : "Start listening")
@@ -381,7 +381,7 @@ struct LauncherView: View {
           Text(shown.command == nil ? "esc Close" : "esc Back")
         }
       }
-      .font(.system(size: 12)).foregroundStyle(.secondary)
+      .font(.system(size: 12)).foregroundStyle(Ink.secondary)
       .padding(.horizontal, 20).frame(height: PaletteLayout.footer - 1)
     }
     .frame(height: cardHeight)
@@ -421,7 +421,7 @@ struct LauncherView: View {
   private func elapsedLabel(_ elapsed: TimeInterval) -> some View {
     let seconds = max(0, Int(elapsed))
     return Text(seconds < 60 ? "\(seconds)s" : String(format: "%d:%02d", seconds / 60, seconds % 60))
-      .monospacedDigit().foregroundStyle(.tertiary).accessibilityHidden(elapsed < 3)
+      .monospacedDigit().foregroundStyle(Ink.tertiary).accessibilityHidden(elapsed < 3)
       .opacity(elapsed >= 3 ? 1 : 0).animation(.easeInOut(duration: 0.45), value: elapsed >= 3)
   }
   /// The main input, sized by a hidden copy of its text (or placeholder) so the slots can follow it; the
@@ -475,7 +475,7 @@ struct LauncherView: View {
         LazyVStack(spacing: 2) {
           if shown.rows.isEmpty {
             Text(shown.showsBusy ? "Running…" : shown.busy || shown.awaitsPattern ? " " : "No results")
-              .foregroundStyle(.secondary).frame(height: PaletteLayout.header)
+              .foregroundStyle(Ink.secondary).frame(height: PaletteLayout.header)
           }
           ForEach(shown.rows) { result in resultRow(result) }
         }.padding(10)
@@ -542,12 +542,12 @@ struct LauncherView: View {
           Text(result.row.title).font(
             .system(size: 24 * textSize.scale, weight: .medium).monospacedDigit())
           Text(result.row.subtitle ?? "").font(.system(size: 12)).foregroundStyle(
-            .secondary)
+            Ink.secondary)
         }.lineLimit(1)
       } else if result.row.id == Permissions.accessibilityRowID, let subtitle = result.row.subtitle {
         VStack(alignment: .leading, spacing: 0) {
           Text(result.row.title)
-          Text(subtitle).foregroundStyle(.secondary)
+          Text(subtitle).foregroundStyle(Ink.secondary)
         }
         .font(.system(size: 14 * textSize.scale)).lineLimit(1)
       } else {
@@ -556,20 +556,20 @@ struct LauncherView: View {
             1)
         // Beside a detail the list is narrow, and the detail says more.
         if let subtitle = result.row.subtitle, result.provider != "apps", !shown.splits {
-          Text(subtitle).font(.system(size: 14 * textSize.scale)).foregroundStyle(.secondary)
+          Text(subtitle).font(.system(size: 14 * textSize.scale)).foregroundStyle(Ink.secondary)
             .lineLimit(1)
         }
       }
       Spacer(minLength: 8)
       if result.provider == "apps", let subtitle = result.row.subtitle {
-        Text(subtitle).font(.system(size: 13 * textSize.scale)).foregroundStyle(.secondary)
+        Text(subtitle).font(.system(size: 13 * textSize.scale)).foregroundStyle(Ink.secondary)
           .lineLimit(1)
       }
       if recorder.target != nil, recorder.target == navigator.hotkeyTarget(of: result) {
         Text(recorder.rejected ? "Add ⌘, ⌃ or ⌥ · Esc cancels" : "Press a shortcut · Esc cancels")
-          .font(.system(size: 13 * textSize.scale)).foregroundStyle(.secondary).lineLimit(1)
+          .font(.system(size: 13 * textSize.scale)).foregroundStyle(Ink.secondary).lineLimit(1)
       } else if let hotkey = navigator.hotkey(of: result) {
-        Text(hotkey.symbols).font(.system(size: 13 * textSize.scale)).foregroundStyle(.tertiary)
+        Text(hotkey.symbols).font(.system(size: 13 * textSize.scale)).foregroundStyle(Ink.tertiary)
           .lineLimit(1)
       }
     }
@@ -632,24 +632,24 @@ struct LauncherView: View {
           ?? "Type a question for \(shown.askingName)."
         : "Press Return to ask \(shown.askingName), or edit the question first."
     )
-    .font(.system(size: textSize.points)).foregroundStyle(.secondary)
+    .font(.system(size: textSize.points)).foregroundStyle(Ink.secondary)
     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
     .frame(height: PaletteLayout.answerMin)
   }
   @ViewBuilder private func conversationContent(_ agent: AgentPresentation) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       if let source = agent.source {
-        Text("from \(source)").font(.system(size: 11)).foregroundStyle(.tertiary)
+        Text("from \(source)").font(.system(size: 11)).foregroundStyle(Ink.tertiary)
       }
       Text(agent.question).font(.system(size: 13, weight: .medium))
         .lineLimit(agent.expanded ? nil : 2).textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
       if Self.isLong(agent.question) {
         Button(agent.expanded ? "Show less" : "Show more") { navigator.toggleQuestion() }
-          .font(.system(size: 12)).buttonStyle(.plain).foregroundStyle(.secondary)
+          .font(.system(size: 12)).buttonStyle(.plain).foregroundStyle(Ink.secondary)
       }
       if let notice = agent.notice {
-        Text(notice).font(.system(size: 11)).foregroundStyle(.tertiary)
+        Text(notice).font(.system(size: 11)).foregroundStyle(Ink.tertiary)
       }
     }.padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 2)
       .onGeometryChange(for: CGFloat.self) {
@@ -687,7 +687,7 @@ struct LauncherView: View {
     } else if let command = navigator.extensions.commands[result.provider] {
       ExtensionIcon(value: result.row.icon, command: command, host: navigator.extensions)
     } else {
-      Image(systemName: result.row.icon ?? "app").font(.system(size: 20)).foregroundStyle(.secondary)
+      Image(systemName: result.row.icon ?? "app").font(.system(size: 20)).foregroundStyle(Ink.secondary)
     }
   }
 }
@@ -702,7 +702,7 @@ struct ExtensionIcon: View {
     let scope = host.iconScope(for: command)
     let (paths, fallback) = ExtensionIcons.choices(value, manifest: scope.manifest)
     if paths.isEmpty {
-      Image(systemName: fallback).font(.system(size: symbolSize)).foregroundStyle(.secondary)
+      Image(systemName: fallback).font(.system(size: symbolSize)).foregroundStyle(Ink.secondary)
     } else {
       let _ = host.iconRevision
       RowImage(
@@ -724,7 +724,7 @@ private struct RowImage: View {
         Image(decorative: image, scale: 3)
           .resizable().scaledToFit().clipShape(.rect(cornerRadius: 4))
       } else {
-        Image(systemName: fallback).font(.system(size: symbolSize)).foregroundStyle(.secondary)
+        Image(systemName: fallback).font(.system(size: symbolSize)).foregroundStyle(Ink.secondary)
       }
     }
     .task(id: version) {
@@ -785,4 +785,13 @@ extension RowAction {
     case .editList: "pencil"
     }
   }
+}
+
+/// Text colors over the glass: solid ink, because over clear glass a translucent label (the system's
+/// `.primary` is 85%) takes on the wallpaper behind it. Explicit colors, since a scroll view's content
+/// resolves `.secondary` from the system again.
+enum Ink {
+  static let primary = Color(nsColor: .textColor)
+  static let secondary = primary.opacity(0.7)
+  static let tertiary = primary.opacity(0.5)
 }
