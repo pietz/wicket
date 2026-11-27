@@ -7,16 +7,16 @@
   --ink: CanvasText;
   --muted: light-dark(rgb(0 0 0 / 70%), rgb(255 255 255 / 70%));
   --line: light-dark(rgb(0 0 0 / 9%), rgb(255 255 255 / 10%));
-  /* A box is more of the glass's own tint, white in light and black in dark: over clear glass that keeps the
-     wallpaper's colour, where the opposite ink would turn it grey. */
-  --surface: light-dark(rgb(255 255 255 / 55%), rgb(0 0 0 / 18%));
-  --edge: light-dark(rgb(0 0 0 / 7%), rgb(255 255 255 / 9%));
+  /* In light a box is more of the glass's white, which keeps the wallpaper's colour where black would grey
+     it. In dark a black box vanishes over a dark backdrop, so it is a faint white fill held by its edge. */
+  --surface: light-dark(rgb(255 255 255 / 55%), rgb(255 255 255 / 5%));
+  --edge: light-dark(rgb(0 0 0 / 9%), rgb(255 255 255 / 14%));
   --track: var(--line);
   --accent: AccentColor;
   /* A page row's colors are the native list's (`Ink` in LauncherView): solid ink, grey and its selection. */
   --label: var(--ink);
   --secondary: light-dark(rgb(0 0 0 / 70%), rgb(255 255 255 / 70%));
-  --selection: light-dark(rgb(0 0 0 / 7%), rgb(255 255 255 / 12%));
+  --selection: light-dark(rgb(0 0 0 / 9%), rgb(255 255 255 / 18%));
   /* A badge's tones. Amber is never a fill: it turns brown, so a warning is a dot. */
   --positive: light-dark(oklch(0.70 0.17 152), oklch(0.78 0.19 152));
   --warning: light-dark(oklch(0.78 0.17 70), oklch(0.84 0.16 82));

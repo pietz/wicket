@@ -801,8 +801,8 @@ enum Ink {
   static let tertiary = primary.opacity(0.5)
   /// The page's `--selection` and `--surface` in answers.css.
   static let selection = adaptive(
-    light: .black.withAlphaComponent(0.07), dark: .white.withAlphaComponent(0.12))
-  static let surface = adaptive(light: .white.withAlphaComponent(0.55), dark: .black.withAlphaComponent(0.18))
+    light: .black.withAlphaComponent(0.09), dark: .white.withAlphaComponent(0.18))
+  static let surface = adaptive(light: .white.withAlphaComponent(0.55), dark: .white.withAlphaComponent(0.05))
   private static func adaptive(light: NSColor, dark: NSColor) -> Color {
     Color(
       nsColor: NSColor(name: nil) { appearance in
