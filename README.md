@@ -54,6 +54,8 @@ In Settings ▸ Extensions ▸ Windows, set the gap or add a saved move with an 
 
 **Shell** opens commands in your home folder. Type `> git status` and press Return. Choose the terminal in Settings ▸ Extensions ▸ Shell.
 
+**Caffeinate** keeps your Mac and its display awake. Type `caff 2` and press Return for two hours, or `caff` and Tab to set minutes and seconds. With no duration, it stays awake until you turn it off. Open Caffeinate to see until when, and choose **Turn Off** to stop it. Running it again replaces the timer, which continues even after Wicket quits.
+
 **Clipboard** is off by default; enable it in Settings ▸ Extensions, then type `clip` to search copied texts and images (Return pastes, requiring Accessibility). Keeps 500 entries for 30 days on-device outside the agent's working folder, skipping items password managers mark concealed.
 
 **Command hotkeys.** Press ⌘K ▸ **Set Hotkey…** on an openable command like Weather, an item with a distinct action like Left Half, Settings, Agent History, or Clipboard. Calculator, Convert, and Shell answer from root patterns. Hidden actions, copy, paste, open, and reveal run without showing Wicket. Other supported actions open directly on their screen. None are set by default.

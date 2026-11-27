@@ -27,7 +27,7 @@ let bundledExtensions: URL = {
     .deletingLastPathComponent()
   let fm = FileManager.default
   let folder = testProducts.appending(path: "Extensions")
-  let names = ["calculator", "units", "weather", "window", "shell", "links-search"]
+  let names = ["calculator", "units", "weather", "window", "shell", "links-search", "caffeinate"]
   precondition(
     names.allSatisfy { fm.isExecutableFile(atPath: testProducts.appending(path: $0).path) },
     "Missing bundled extension executables beside Wicket. Run Scripts/check.sh to build them.")

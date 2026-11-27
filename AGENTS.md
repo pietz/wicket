@@ -8,7 +8,7 @@ A small, fast, native macOS launcher with your own AI agent built in, and extens
 - `Sources/WicketApp/Resources`: `answers.css`, `bridge.js`, `theme-template.css`, `agent-instructions.md` (sent on every Claude turn; on Codex thread start), `extension-contract.md`, and `examples/`, loaded via `Bundle.wicket`.
 - `Sources/WicketJS`: the bundled `wicket-js` JavaScriptCore runner executable (`Contents/MacOS/wicket-js`).
 - `Sources/ObjCBoundary`: Objective-C exception boundary for private KVC calls (`GlassBlur`).
-- `Sources/Extensions`: bundled Swift extensions (`calculator`, `units`, `weather`, `links-search` (Quicklinks), `window`, `shell`), one executable target each with shared code in `Shared/`. `build-app.sh` copies each binary, manifest, and source into `Contents/Resources/Extensions`.
+- `Sources/Extensions`: bundled Swift extensions (`calculator`, `units`, `weather`, `links-search` (Quicklinks), `window`, `shell`, `caffeinate`), one executable target each with shared code in `Shared/`. `build-app.sh` copies each binary, manifest, and source into `Contents/Resources/Extensions`.
 - `Tests/WicketTests`: headless tests with hardware-edge fakes (voice, agent, hotkey, Spotlight) and recorded streams in `Fixtures/`. Drive conversations through `Navigator` (never the session directly) and use `RecordingSurface`.
 - `Resources`: `Info.plist`, entitlements, icons. `Scripts`: `check.sh`, `build-app.sh`, `release.sh`, `land.sh`, `hooks/`. `appcast.xml` and `Casks/wicket.rb` are updated by `release.sh`. `tools/glass-lab`: standalone surface sandbox (`swift run` there; outside app and check).
 

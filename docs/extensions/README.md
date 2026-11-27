@@ -11,6 +11,7 @@ Specs, shared decisions, and status for official extensions. Wicket-wide roadmap
 | Weather | [weather.md](weather.md) | Bundled | Current conditions and a five-day forecast by city. |
 | Quicklinks | [quicklinks.md](quicklinks.md) | Shipped | Personal bookmarks and site searches with optional keywords and hotkeys. |
 | Windows | [window-manager.md](window-manager.md) | Phases 1–3 shipped | Stock moves, verified readback, Capture, and saved moves in Settings; multi-window layouts next. |
+| Caffeinate | [caffeinate.md](caffeinate.md) | Bundled | Keeps the Mac awake for a typed duration or until turned off. |
 | Calendar | [calendar.md](calendar.md) | Waiting on permission checks | Read-only 7-day EventKit agenda with Join and headless read. |
 
 **Parked:** System ([system.md](system.md))—waiting on Automation and per-action permission design.
