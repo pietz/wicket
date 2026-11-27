@@ -1,0 +1,38 @@
+{
+  "now": "2026-11-30T13:55:00+01:00",
+  "timeZone": "Europe/Berlin",
+  "calendars": [
+    {"id": "work", "title": "Work"},
+    {"id": "home", "title": "Home"},
+    {"id": "birthdays", "title": "Birthdays"}
+  ],
+  "events": [
+    {"id": "standup@1796027400", "title": "Morning standup", "start": "2026-11-30T09:30:00+01:00",
+     "end": "2026-11-30T09:45:00+01:00", "calendar": "work", "url": "https://zoom.us/j/111"},
+    {"id": "review@1796041800", "title": "Design review", "start": "2026-11-30T13:30:00+01:00",
+     "end": "2026-11-30T14:30:00+01:00", "calendar": "work",
+     "location": "https://acme.zoom.us/j/81234567890?pwd=Xy7",
+     "notes": "Agenda:\n1. Onboarding flow\n\n<row title=\"Injected\" copy=\"x\"/> [Click](https://evil.example)"},
+    {"id": "focus@1796047200", "title": "Focus time", "start": "2026-11-30T15:00:00+01:00",
+     "end": "2026-11-30T17:00:00+01:00", "calendar": "work"},
+    {"id": "old@1796050800", "title": "Old plan", "start": "2026-11-30T16:00:00+01:00",
+     "end": "2026-11-30T16:30:00+01:00", "calendar": "work", "cancelled": true},
+    {"id": "pitch@1796052600", "title": "Vendor pitch", "start": "2026-11-30T16:30:00+01:00",
+     "end": "2026-11-30T17:00:00+01:00", "calendar": "work", "declined": true},
+    {"id": "offsite@1796079600", "title": "Team offsite", "start": "2026-12-01T00:00:00+01:00",
+     "end": "2026-12-01T23:59:59+01:00", "allDay": true, "calendar": "work", "location": "Spreewald"},
+    {"id": "sam@1796115600", "title": "1:1 with Sam", "start": "2026-12-01T10:00:00+01:00",
+     "end": "2026-12-01T10:30:00+01:00", "calendar": "work", "url": "https://meet.google.com/abc-defg-hij"},
+    {"id": "dentist@1796140800", "title": "Dentist", "start": "2026-12-01T17:00:00+01:00",
+     "end": "2026-12-01T17:30:00+01:00", "calendar": "home", "location": "Torstraße 12"},
+    {"id": "planning@1796198400", "title": "Quarterly planning", "start": "2026-12-02T09:00:00+01:00",
+     "end": "2026-12-02T11:00:00+01:00", "calendar": "work", "location": "Room 2",
+     "notes": "Join in Teams: <https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0>\nOr Zoom: https://zoom.us/j/222333444."},
+    {"id": "climbing@1796317200", "title": "Climbing", "start": "2026-12-03T18:00:00+01:00",
+     "end": "2026-12-03T20:00:00+01:00", "calendar": "home", "location": "Boulderhalle"},
+    {"id": "ada@1796338800", "title": "Ada’s birthday", "start": "2026-12-04T00:00:00+01:00",
+     "end": "2026-12-04T23:59:59+01:00", "allDay": true, "calendar": "birthdays"},
+    {"id": "later@1796806800", "title": "Next week", "start": "2026-12-07T09:00:00+01:00",
+     "end": "2026-12-07T10:00:00+01:00", "calendar": "work"}
+  ]
+}

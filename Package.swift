@@ -30,12 +30,14 @@ let package = Package(
     .executableTarget(name: "weather", path: "Sources/Extensions/weather", exclude: ["wicket.json"]),
     .executableTarget(name: "window", path: "Sources/Extensions/window", exclude: ["wicket.json"]),
     .executableTarget(name: "shell", path: "Sources/Extensions/shell", exclude: ["wicket.json"]),
+    .executableTarget(name: "calendar", path: "Sources/Extensions/calendar", exclude: ["wicket.json"]),
     .executableTarget(
       name: "caffeinate", path: "Sources/Extensions/caffeinate", exclude: ["wicket.json"]),
     .executableTarget(
       name: "links-search", path: "Sources/Extensions/links-search", exclude: ["wicket.json"]),
     .testTarget(
-      name: "WicketTests", dependencies: ["WicketApp", "units", "weather", "window", "shell", "caffeinate"],
+      name: "WicketTests",
+      dependencies: ["WicketApp", "units", "weather", "window", "shell", "caffeinate", "calendar"],
       resources: [.copy("Fixtures")]
     ),
   ]

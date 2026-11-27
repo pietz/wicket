@@ -39,6 +39,7 @@ private let states =
     "weather-keyword", "weather-root", "weather-page", "weather-default", "convert-cached-rate",
     "caffeinate-keyword", "caffeinate-off", "caffeinate-draft", "caffeinate-on",
     "caffeinate-started",
+    "calendar-agenda", "calendar-empty-day", "calendar-detail", "calendar-denied",
     "extension-targets", "extension-detail-larger", "asking", "asking-extension",
     "extension-error", "fields-empty", "fields-filled", "fields-command", "fields-open",
     "fields-long", "fields-three", "history", "history-reopened", "clipboard", "clipboard-image",
@@ -71,6 +72,16 @@ private func expectedText(_ name: String) -> [String] {
   if name == "caffeinate-draft" { return ["Keep Awake for 2 h 30 min", "Until"] }
   if name == "caffeinate-on" { return ["Awake until", "2 h 15 min left", "Turn Off", "Keep Awake"] }
   if name == "caffeinate-started" { return ["Awake until", "2 h left", "Turn Off", "Let your Mac sleep"] }
+  if name == "calendar-agenda" {
+    return ["Calendar", "Design review", "Now until 14:30", "Join Zoom", "Today", "Focus time", "Tomorrow"]
+  }
+  if name == "calendar-empty-day" {
+    return ["1:1 with Sam", "Tomorrow 10:00", "Join Google Meet", "Nothing else today", "Team offsite"]
+  }
+  if name == "calendar-detail" {
+    return ["Design review", "When", "Mon 30 Nov", "Calendar", "Work", "Join Zoom", "Onboarding flow"]
+  }
+  if name == "calendar-denied" { return ["Allow Calendar for Wicket", "Turn on Wicket under Calendars"] }
   if name == "weather-page" || name == "weather-default" {
     return ["Overcast", "Berlin, Germany", "Next hours", "Next days", "Wind"]
   }
@@ -560,6 +571,7 @@ private let installedAgent: Void = {
         model.navigator.go(Address(id: "extension:links-search", link: true))
       }
     case _ where name.hasPrefix("extension-"): try await configureExtension(name, model)
+    case _ where name.hasPrefix("calendar-"): try await configureCalendar(name, model)
     case "asking": model.navigator.askAgent()
     case "asking-extension":
       try await configureExtension("extension-detail", model)
@@ -586,6 +598,7 @@ private let installedAgent: Void = {
     }
     controller.show(orderFront: false, listen: false)
     await model.navigator.settled()
+    if name == "calendar-detail" { try await openCalendarDetail(model) }
     return scenario
   }
 
@@ -875,6 +888,36 @@ private let installedAgent: Void = {
       }
       await model.navigator.settled()
     }
+  }
+
+  /// The bundled Calendar's manifest, printing what its program prints for the recorded week
+  /// (`CalendarWeek`): during a call, after the day's last event, an event's detail, and without access.
+  private static func configureCalendar(_ state: String, _ model: LauncherModel) async throws {
+    let view = try CalendarWeek.recorded().view(minutes: state == "calendar-empty-day" ? 4 * 60 : 0)
+    let folder = model.agent.folder.appending(path: "extensions/calendar")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    var manifest = try #require(
+      try JSONSerialization.jsonObject(
+        with: Data(contentsOf: bundledExtensions.appending(path: "calendar/wicket.json"))) as? [String: Any])
+    manifest["command"] = ["/usr/bin/python3", "main.py"]
+    try JSONSerialization.data(withJSONObject: manifest).write(to: folder.appending(path: "wicket.json"))
+    try JSONEncoder().encode(view).write(to: folder.appending(path: "view.json"))
+    try Data("import json,sys; json.load(sys.stdin); sys.stdout.write(open('view.json').read())".utf8)
+      .write(to: folder.appending(path: "main.py"))
+    let granted = state != "calendar-denied"
+    model.extensions.permissions = Permissions(
+      status: { _ in granted ? .granted : .denied }, request: { _ in })
+    await model.extensions.reload()
+    model.navigator.go(Address(id: "extension:calendar", link: true))
+    await model.navigator.settled()
+  }
+
+  /// Opens the live call's detail, once the panel shows the agenda.
+  private static func openCalendarDetail(_ model: LauncherModel) async throws {
+    for _ in 0..<3 where model.navigator.selected?.row.title != "Design review" { model.navigator.move(1) }
+    try #require(model.navigator.selected?.row.title == "Design review")
+    try #require(model.activateReturn())
+    await model.navigator.settled()
   }
 
   /// A command with two declared fields (three in `fields-three`), as the root row with its slots
@@ -1329,6 +1372,11 @@ func scenariosSetUpTheirState(_ state: String) async throws {
     #expect(model.navigator.command != nil && model.navigator.fieldValues.isEmpty)
   case "fields-three": #expect(model.navigator.fieldSlots.count == 3)
   case "extension-error": #expect(model.navigator.command?.problem?.contains("REPAIR") == true)
+  case "calendar-agenda", "calendar-empty-day":
+    #expect(model.navigator.command?.id == "extension:calendar")
+    #expect(model.navigator.body?.contains("### Tomorrow") == true && model.navigator.viewActions.count >= 1)
+  case "calendar-detail": #expect(model.navigator.inDetail)
+  case "calendar-denied": #expect(Permissions.isGate(model.navigator.results))
   case "history": #expect(model.navigator.command?.id == "history" && model.navigator.results.count == 2)
   case "clipboard":
     #expect(model.navigator.splits && model.navigator.selected?.row.title.hasPrefix("func greet") == true)

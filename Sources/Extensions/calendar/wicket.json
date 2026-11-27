@@ -1,0 +1,14 @@
+{
+  "contract": 2,
+  "name": "Calendar",
+  "description": "Your next seven days from the calendars on this Mac, with Join for the next call.",
+  "keyword": "calendar",
+  "icon": "calendar",
+  "command": ["./main"],
+  "permissions": ["calendar"],
+  "fields": [{"name": "query", "type": "text", "description": "Search events by title, place or calendar", "placeholder": "Search events"}],
+  "settings": [
+    {"name": "hiddenCalendars", "type": "text", "description": "Calendar IDs to hide, separated by commas. Ask the agent to find them.", "placeholder": "Hidden calendars"},
+    {"name": "showAllDay", "type": "bool", "description": "Show all-day events", "default": true}
+  ]
+}
