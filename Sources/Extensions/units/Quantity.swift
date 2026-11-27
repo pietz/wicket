@@ -30,18 +30,12 @@ func letter(_ character: Character) -> Bool {
 struct NumberMarks {
   let decimal: Character
   let grouping: Character?
-  private let groupingSize: Int
-  private let secondaryGroupingSize: Int
+  private let digitGrouping: DigitGrouping
 
   init(_ locale: JSON?) {
-    func size(_ key: String) -> Int? {
-      guard let text = locale?[key]?.string, let value = Int(text), value > 0 else { return nil }
-      return value
-    }
     decimal = locale?["decimal"]?.string?.first ?? "."
     grouping = locale?["grouping"]?.string?.first
-    groupingSize = size("groupingSize") ?? 3
-    secondaryGroupingSize = size("secondaryGroupingSize") ?? groupingSize
+    digitGrouping = DigitGrouping(locale)
   }
 
   func read(_ text: [Character]) -> Double? {
@@ -51,9 +45,9 @@ struct NumberMarks {
       let groups = grouping.map { whole.split(separator: $0, omittingEmptySubsequences: false) } ?? [whole]
       guard groups.allSatisfy({ $0.allSatisfy(digit) }) else { return nil }
       if groups.count > 1 {
-        guard let first = groups.first, (1...secondaryGroupingSize).contains(first.count),
-          first.first != "0", groups.last?.count == groupingSize,
-          groups.dropFirst().dropLast().allSatisfy({ $0.count == secondaryGroupingSize })
+        guard let first = groups.first, (1...digitGrouping.secondary).contains(first.count),
+          first.first != "0", groups.last?.count == digitGrouping.primary,
+          groups.dropFirst().dropLast().allSatisfy({ $0.count == digitGrouping.secondary })
         else { return nil }
       }
       if parts.count == 1 {
@@ -81,18 +75,7 @@ struct NumberMarks {
   func group(_ number: String) -> String {
     guard let grouping else { return number }
     let whole = number.prefix { $0 != decimal }
-    let start = whole.first == "-" ? 1 : 0
-    var result = ""
-    for (offset, character) in number.enumerated() {
-      let remaining = whole.count - offset
-      if offset > start, remaining >= groupingSize,
-        (remaining - groupingSize).isMultiple(of: secondaryGroupingSize)
-      {
-        result.append(grouping)
-      }
-      result.append(character)
-    }
-    return result
+    return digitGrouping.formatWhole(whole, separator: String(grouping)) + number[whole.endIndex...]
   }
 }
 

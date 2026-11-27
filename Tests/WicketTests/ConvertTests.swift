@@ -56,6 +56,9 @@ private func convert(
   let withCode = try await convert(
     "1.500,53 usd to eur", settings: ["decimals": "3", "includeUnit": "true"], locale: de)
   #expect(withCode?.title == "1.200,424 EUR" && withCode?.actions == [.copy("1200,424 EUR")])
+  let lakh = ProviderRequest.NumberMarks(decimal: ".", grouping: ",", secondaryGroupingSize: "2")
+  let grouped = try await convert("-1,23,456.5 usd to usd", locale: lakh)
+  #expect(grouped?.title == "-1,23,456.5 USD" && grouped?.actions == [.copy("-123456.5")])
 }
 
 @Test func convertDecimalPlacesPickerLoadsOldConfigValues() async throws {

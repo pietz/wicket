@@ -9,17 +9,20 @@ private enum Format: String {
 
 private struct Marks {
   let decimal: String
-  let grouping: String
+  private let grouping: String
   private let groupingSpace: Character?
+  private let digitGrouping: DigitGrouping
   let inputDecimal: Character?
   let format: Format
   let precision: Int
 
   init(_ request: JSON?) {
-    decimal = request?["locale"]?["decimal"]?.string ?? "."
-    let grouping = request?["locale"]?["grouping"]?.string ?? ","
+    let locale = request?["locale"]
+    decimal = locale?["decimal"]?.string ?? "."
+    let grouping = locale?["grouping"]?.string ?? ","
     self.grouping = grouping
     groupingSpace = Self.groupingSpaces.first { String($0) == grouping }
+    digitGrouping = DigitGrouping(locale)
     let settings = request?["settings"]
     switch settings?["inputFormat"]?.string {
     case "Dot": inputDecimal = "."
@@ -71,6 +74,17 @@ private struct Marks {
     }
     guard !fractional || parts.last?.isEmpty == false else { return nil }
     return groups.map { String($0) }.joined() + (fractional ? "." + String(parts.last!) : "")
+  }
+
+  func localized(_ machine: String, decimal: String? = nil, grouped: Bool = false) -> String {
+    let exponent = machine.firstIndex(of: "e") ?? machine.endIndex
+    let point = machine[..<exponent].firstIndex(of: ".") ?? exponent
+    let whole = machine[..<point]
+    var text = grouped ? digitGrouping.formatWhole(whole, separator: grouping) : String(whole)
+    if point != exponent {
+      text += (decimal ?? self.decimal) + machine[machine.index(after: point)..<exponent]
+    }
+    return text + machine[exponent...]
   }
 }
 
@@ -719,30 +733,15 @@ private func render(_ number: Number, marks: Marks) -> (machine: String, approxi
   }
 }
 
-private func localized(_ machine: String, decimal: String, grouping: String = "") -> String {
-  let exponent = machine.firstIndex(of: "e") ?? machine.endIndex
-  let point = machine[..<exponent].firstIndex(of: ".") ?? exponent
-  let whole = machine[..<point]
-  var text = ""
-  for (offset, digit) in whole.enumerated() {
-    if offset > 0, (whole.count - offset).isMultiple(of: 3), !(offset == 1 && whole.first == "-") {
-      text += grouping
-    }
-    text.append(digit)
-  }
-  if point != exponent { text += decimal + machine[machine.index(after: point)..<exponent] }
-  return text + machine[exponent...]
-}
-
 private func result(_ expression: Expression, marks: Marks) throws -> String {
   let number: Number
   do { number = try expression.evaluate(exact: true) } catch is Overflow {
     number = try expression.evaluate(exact: false)
   }
   let (machine, approximate) = render(number, marks: marks)
-  let visible = localized(machine, decimal: marks.decimal, grouping: marks.grouping)
-  let copy = quoted(localized(machine, decimal: marks.decimal))
-  let continuation = localized(machine, decimal: marks.inputDecimal.map(String.init) ?? marks.decimal)
+  let visible = marks.localized(machine, grouped: true)
+  let copy = quoted(marks.localized(machine))
+  let continuation = marks.localized(machine, decimal: marks.inputDecimal.map(String.init))
   var actions = [#"{"type":"copy","text":\#(copy)}"#]
   if marks.decimal != "." {
     actions.append(#"{"type":"copy","title":"Copy Machine Number","text":\#(quoted(machine))}"#)

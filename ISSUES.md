@@ -17,7 +17,7 @@ Open problems only, with user impact and next step. Delete items once fixed (git
 - **A changed `config.json` symlink target needs a restart.** While a link dangles, Wicket keeps the launcher hotkey and disables extensions; when the target returns (e.g. a late-mounting volume) or the link is pointed at another file, nothing reloads, and `--diagnose` reports the reload as pending until restart. Next: watch the link's parent as well as the target and resubscribe when the link changes.
 - **`--diagnose` reports hotkeys as registered while Set Hotkey… records**, since recording releases registrations without updating the runtime record. Next: record the pause and report `paused`.
 - **Convert accepts ASCII digits only.** Non-ASCII digits (e.g. Arabic-Indic) yield no row. Next: normalize digits in Convert's parser and regex if requested.
-- **Calculator assumes groups of three digits.** Locales that use lakh grouping can reject input such as `1,00,000 + 1` or display the result with the wrong grouping. Fix by using the locale's primary and secondary grouping widths.
+- **Calculator input assumes groups of three digits.** It can reject lakh-grouped input such as `1,00,000 + 1`.
 
 ## Files
 

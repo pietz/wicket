@@ -141,6 +141,8 @@ func decimalMarks(input: String, inUS: String, inGermany: String) async throws {
   #expect(try await calculate("1\u{202F}234,5 * 2", french)?.copy == "2469")
   let arabic = ProviderRequest.NumberMarks(decimal: "٫", grouping: "٬")
   #expect(try await calculate("١٬٢٣٤٫٥ + 0", arabic) == .init(title: "1٬234٫5", copy: "1234٫5"))
+  let lakh = ProviderRequest.NumberMarks(decimal: ".", grouping: ",", secondaryGroupingSize: "2")
+  #expect(try await calculate("-12345678.5 + 0", lakh) == .init(title: "-1,23,45,678.5", copy: "-12345678.5"))
 }
 
 @Test(arguments: [" ", "\u{00A0}", "\u{202F}"])
