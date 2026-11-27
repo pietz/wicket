@@ -186,7 +186,9 @@ p:has(> w-badge) { line-height: 1.7; }
    labels stay in the document's type scale as the plot stretches. */
 w-chart { display: block; min-width: 0; position: relative; container-type: inline-size; }
 .chart-view { display: flex; flex-direction: column; gap: 8px; height: var(--chart-height); font-variant-numeric: tabular-nums; }
-.chart-title { font-weight: 600; color: var(--ink); }
+/* Bars and shares have a natural height: a few rows shouldn't leave the plot's empty space below. */
+.chart-view:has(> .chart-bars, > .chart-shares) { height: auto; max-height: var(--chart-height); }
+.chart-title { flex: none; font-weight: 600; color: var(--ink); }
 .chart-title, .chart-bar-label, .chart-legend-name, .chart-x, .chart-rule-label {
   overflow: hidden;
   text-overflow: ellipsis;
