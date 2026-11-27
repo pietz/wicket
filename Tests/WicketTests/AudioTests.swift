@@ -258,6 +258,23 @@ private func captureSample(_ input: AVAudioPCMBuffer) throws -> CMSampleBuffer {
   #expect(counts.withLock { $0 } == (2, 1))
 }
 
+@Test func inputFormatChangeMidSessionKeepsDeliveringAudio() throws {
+  let output = try #require(AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1))
+  let before = try captureSample(try audio(2, rate: 48000))
+  let after = try captureSample(try audio(2, rate: 32000, interleaved: true))
+  let counts = Mutex((audio: 0, first: 0))
+  let receiver = AudioSamples(
+    format: output, deviceName: "Test input",
+    audio: { result in
+      #expect(result.format == output)
+      counts.withLock { $0.audio += 1 }
+    },
+    firstAudio: { counts.withLock { $0.first += 1 } },
+    fail: { Issue.record("Audio failed: \(VoiceLog.describe($0))") })
+  for packet in [before, after, after, before] { receiver.receive(packet) }
+  #expect(counts.withLock { $0 } == (4, 1))
+}
+
 @Test(arguments: [AVAudioCommonFormat.pcmFormatFloat32, .pcmFormatInt16])
 func earlyDigitalSilenceReportsTheInputOnce(_ analyzerFormat: AVAudioCommonFormat) throws {
   let input = try audio(2, interleaved: true)

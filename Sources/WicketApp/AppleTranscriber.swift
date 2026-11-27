@@ -500,8 +500,15 @@ final class AudioSamples: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate
       buffer.frameLength = buffer.frameCapacity
       try sampleBuffer.copyPCMData(
         fromRange: 0..<sampleBuffer.numSamples, into: buffer.mutableAudioBufferList)
-      if conversion == nil {
-        firstAudio()
+      // A USB mic can switch its native format a few buffers into a session; follow it.
+      if conversion?.source != buffer.format {
+        if conversion == nil {
+          firstAudio()
+        } else {
+          VoiceLog.logger.log(
+            "voice input format changed: \(Int(stream.mSampleRate), privacy: .public) Hz, \(stream.mChannelsPerFrame, privacy: .public) ch, \(stream.mBitsPerChannel, privacy: .public) bit, flags \(stream.mFormatFlags, privacy: .public)"
+          )
+        }
         conversion = try Conversion(input: buffer.format, output: format)
       }
       if let converted = try conversion?.convert(buffer) {
@@ -559,7 +566,7 @@ final class AudioSamples: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate
 
 /// Explicit averaging supports discrete multichannel PCM layouts.
 final class Conversion {
-  private let source: AVAudioFormat
+  let source: AVAudioFormat
   private let downmix: (mono: AVAudioFormat, normalizer: AVAudioConverter?)?
   private let converter: AVAudioConverter?
 
