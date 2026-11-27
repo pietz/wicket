@@ -66,6 +66,7 @@ final class VoiceInput {
   @ObservationIgnored private(set) var shutdown: Task<Void, Never>?
   @ObservationIgnored private var firstAudio: ContinuousClock.Instant?
   @ObservationIgnored private var heardSpeech = false
+  @ObservationIgnored private var started = ContinuousClock.now
   var startupDuration: Duration = .seconds(8)
   var shutdownDuration: Duration = .milliseconds(500)
   var silenceDuration: Duration = .seconds(60)
@@ -93,6 +94,7 @@ final class VoiceInput {
     let current = generation
     VoiceLog.logger.log(
       "voice \(current, privacy: .public) start: \(allowBluetooth ? "manual" : "auto", privacy: .public)")
+    started = .now
     firstAudio = nil
     heardSpeech = false
     let source = makeTranscriber()
@@ -156,7 +158,7 @@ final class VoiceInput {
     generation += 1
     let capture = transcriber?.stop() ?? VoiceCapture()
     VoiceLog.logger.log(
-      "voice \(attempt, privacy: .public) stop: \(reason.rawValue, privacy: .public), buffers \(capture.buffers, privacy: .public), format changes \(capture.formatChanges, privacy: .public)"
+      "voice \(attempt, privacy: .public) stop: \(reason.rawValue, privacy: .public), \(VoiceLog.milliseconds(since: self.started), privacy: .public) ms, buffers \(capture.buffers, privacy: .public), format changes \(capture.formatChanges, privacy: .public)"
     )
     if let closing = transcriber?.shutdown {
       let deadline = ContinuousClock.now + shutdownDuration
