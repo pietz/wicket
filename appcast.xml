@@ -6,6 +6,19 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.9.6</title>
+      <pubDate>Fri, 27 Nov 2026 19:48:06 +0000</pubDate>
+      <sparkle:version>57</sparkle:version>
+      <sparkle:shortVersionString>0.9.6</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Easier to read over any wallpaper
+
+- **Solid text on the glass.** Text you type and the main text in results, pages and answers is now solid black or white instead of slightly translucent, so a busy or bright wallpaper no longer shows through the letters. Secondary text is darker too.
+- Page rows keep the same grey as the result list when Increase Contrast is on.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.9.6</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.9.6/Wicket-0.9.6.dmg" type="application/octet-stream" sparkle:edSignature="6i82Vr6zIL63z6eisLemQOHga5jN3YtmyD8wMzYsqtLL4KsyuVOqVlsIJ10vzlD1RKifZOVtulchcbRSA0tBDQ==" length="4952935"/>
+    </item>
+    <item>
       <title>Wicket 0.9.5</title>
       <pubDate>Fri, 27 Nov 2026 18:01:29 +0000</pubDate>
       <sparkle:version>56</sparkle:version>
