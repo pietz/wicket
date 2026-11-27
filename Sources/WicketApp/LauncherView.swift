@@ -473,7 +473,7 @@ struct LauncherView: View {
           })
       }
       .padding(.horizontal, 9).frame(height: 28)
-      .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.primary.opacity(0.08)))
+      .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Ink.surface))
   }
   /// The native list: search results, a command's items, or the action panel's actions.
   private var list: some View {
@@ -586,9 +586,7 @@ struct LauncherView: View {
     )
     .background {
       if result.id == shown.selection {
-        // Clear glass shows more of what is behind it than the old frosted glass, so the highlight is stronger.
-        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(
-          .primary.opacity(0.16))
+        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Ink.selection)
       }
     }
     .contentShape(Rectangle()).id(result.id)
@@ -801,4 +799,14 @@ enum Ink {
   static let primary = Color(nsColor: .textColor)
   static let secondary = primary.opacity(0.7)
   static let tertiary = primary.opacity(0.5)
+  /// The page's `--selection` and `--surface` in answers.css.
+  static let selection = adaptive(
+    light: .black.withAlphaComponent(0.07), dark: .white.withAlphaComponent(0.12))
+  static let surface = adaptive(light: .white.withAlphaComponent(0.55), dark: .black.withAlphaComponent(0.18))
+  private static func adaptive(light: NSColor, dark: NSColor) -> Color {
+    Color(
+      nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+      })
+  }
 }

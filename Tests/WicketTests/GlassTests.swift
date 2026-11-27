@@ -26,10 +26,10 @@ import Testing
 @Test(arguments: [true, false]) func glassTintAndSaturationFollowTransparency(dark: Bool) {
   let white: CGFloat = dark ? 0 : 1
   let samples: [(transparency: Double, alpha: Double, saturation: Double)] = [
-    (0, 1, 2),
-    (0.25, 0.875, 2),
-    (0.5, 0.75, 2),
-    (0.75, 0.375, 1.5),
+    (0, 1, 1.6),
+    (0.25, 0.875, 1.6),
+    (0.5, 0.75, 1.6),
+    (0.75, 0.375, 1.3),
     (1, 0, 1),
   ]
   for sample in samples {

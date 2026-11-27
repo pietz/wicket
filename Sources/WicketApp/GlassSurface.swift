@@ -47,8 +47,9 @@ struct GlassSurface: View {
 /// Unfocused desktop widgets are clear glass with a dark tint and a saturation boost, not a fill under the
 /// glass: a fill darkens the backdrop before the glass blurs it, and the glass's own white face fill then
 /// lifts it to a flat grey. The widgets were measured on macOS 27.2 (mean colour over flat swatches,
-/// surviving contrast over a checkerboard) and the slider midpoints sit at or near them. Light mode keeps a light surface
-/// for dark text instead of copying the widgets, which darken the wallpaper and switch to white text.
+/// surviving contrast over a checkerboard) and the slider midpoints sit at or near them. Light mode keeps a
+/// light surface for dark text instead of copying the widgets, which darken the wallpaper and switch to
+/// white text.
 ///
 /// No public API sets the blur strength or the saturation. Only `inputBlurRadius` sets the strength: the
 /// `inputBlurOpacity0…4` bands fade the blur in from the edge, and raising them keeps the centre sharp.
@@ -74,10 +75,11 @@ enum GlassBlur {
     return radius * (role == .pill ? pillRatio : 1)
   }
 
-  /// The tint and the private face inputs for the Transparency slider. One midpoint serves both modes: close
-  /// to the widgets' measured 68% tint and 2.4 boost, with enough tint that light mode's dark text stays clean
-  /// over app windows and a boost that keeps warm wallpapers from going neon. Dark also pins the face's white and black points to a normal window's: in a floating panel of a
-  /// background app AppKit lifts them (white 1.08, black 0.125), which turns the dark glass grey.
+  /// The tint and the private face inputs for the Transparency slider. One midpoint serves both modes: near
+  /// the widgets' measured 68% tint, with enough tint that light mode's dark text stays clean over app
+  /// windows, and a gentler boost than the widgets' 2.4 so wallpapers don't look oversaturated. Dark also
+  /// pins the face's white and black points to a normal window's: in a floating panel of a background app
+  /// AppKit lifts them (white 1.08, black 0.125), which turns the dark glass grey.
   static func style(_ transparency: Double, dark: Bool, increasedContrast: Bool)
     -> (tint: NSColor, inputs: [String: Double])
   {
@@ -91,7 +93,7 @@ enum GlassBlur {
     let tint = NSColor(
       srgbRed: white, green: white, blue: white, alpha: increasedContrast ? max(alpha, 0.9) : alpha)
     if increasedContrast { return (tint, [:]) }
-    let midpointSaturation = 2.0
+    let midpointSaturation = 1.6
     let saturation = 1 + (midpointSaturation - 1) * min(1, 2 - progress)
     return (
       tint, dark ? [saturationKey: saturation, whiteKey: 0.88, blackKey: 0.05] : [saturationKey: saturation]
