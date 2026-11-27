@@ -354,7 +354,7 @@ private func command(_ json: String) throws -> ExtensionCommand {
     manifest: try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8)))
 }
 
-@Test func extensionItemsRankWithAppsByTierThenUsageAndTakeTheExtensionsNameAndIcon() throws {
+@Test func extensionItemsRankWithAppsByTierThenUsageAndTakeTheExtensionsName() throws {
   let links = try command(
     #"{"name":"Links","icon":"link","items":[{"id":"gh","title":"GitHub","keywords":["code"],"actions":[]},"#
       + #"{"id":"cal","title":"Calendar Web","subtitle":"Work","icon":"calendar","actions":[]}]}"#)
@@ -374,7 +374,7 @@ private func command(_ json: String) throws -> ExtensionCommand {
   // Usage lifts the item within the prefix tier but never above the exact match.
   #expect(titles(used) == ["Cal", "Calendar Web", "Calendar"])
   let github = compose("code", items: items("code")).results[0]
-  #expect(github.row.title == "GitHub" && github.row.subtitle == "Links" && github.row.icon == "link")
+  #expect(github.row.title == "GitHub" && github.row.subtitle == "Links" && github.row.icon == nil)
   #expect(
     github.id != Result(provider: "extension:links", row: Row(id: "command", title: "", actions: [])).id)
   let own = links.rootItems(SearchQuery("cal"))[0].row

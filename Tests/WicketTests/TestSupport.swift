@@ -91,6 +91,7 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
   let next: (any PaletteSurface)?
   var effects: [PaletteEffect] = []
   var onEffect: (PaletteEffect) -> Void = { _ in }
+  var effectSucceeds = true
   /// Each drawing of what the screens show, once the panel drew it.
   var onDraw: () -> Void = {}
   /// Measures an arriving page instead of the panel.
@@ -127,11 +128,11 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
       arriving()
     }
   }
-  func perform(_ effect: PaletteEffect) {
+  @discardableResult func perform(_ effect: PaletteEffect) -> Bool {
     if effect == .hide { shown = false }
     effects.append(effect)
     onEffect(effect)
-    next?.perform(effect)
+    return next?.perform(effect) ?? effectSucceeds
   }
   func count(_ effect: PaletteEffect) -> Int { effects.filter { $0 == effect }.count }
 }

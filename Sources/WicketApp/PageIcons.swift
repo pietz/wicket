@@ -70,19 +70,17 @@ import ImageIO
     return ":root { " + declarations.joined(separator: " ") + " }\n" + rules
   }
 
-  static func extensionStylesheet(for page: Page) async -> String {
-    guard !page.iconRequests.isEmpty else { return "" }
-    return await Task.detached {
-      var rules = ""
-      for (id, request) in page.iconRequests.sorted(by: { $0.key < $1.key }) {
-        guard let image = await ExtensionIcons.shared.image(for: request),
-          let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
-        else { continue }
-        rules +=
-          "[data-target=\(cssString(id))] { --image: url(data:image/png;base64,\(png.base64EncodedString())); --icon: none; --icon-radius: 4px; }\n"
-      }
-      return rules
-    }.value
+  static func extensionStylesheet(for requests: [String: ExtensionIcons.Version]) -> String {
+    var selectors: [String: [String]] = [:]
+    for (version, rows) in Dictionary(grouping: requests, by: \.value) {
+      guard let url = ExtensionIcons.cached(version)?.cssURL else { continue }
+      selectors[url, default: []] += rows.map { "[data-target=\(cssString($0.key))]" }
+    }
+    return selectors.keys.sorted().map { url in
+      let targets = selectors[url, default: []].sorted().joined(separator: ", ")
+      return
+        "\(targets) { --image: url(\(url)); --icon: none; --icon-radius: 4px; }\n"
+    }.joined()
   }
 
   private static func image(_ key: String) -> String? {

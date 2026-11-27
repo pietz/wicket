@@ -901,12 +901,15 @@ private let installedAgent: Void = {
       initial.providers.append(.init("extension:weather", enabled: false))
     }
     if state == "settings-extension-local" {
-      _ = try extensionFolder(
+      let local = try extensionFolder(
         folder, name: "site-status",
         fields: [
           "name": "Site Status", "description": "Checks whether a website is responding.",
+          "icon": "site.png",
           "settings": [["name": "endpoint", "type": "text", "description": "Endpoint"]],
         ])
+      try FileManager.default.copyItem(
+        at: fixtureURL("image-icons/release.png"), to: local.appending(path: "site.png"))
     }
     let quicklinks = state.hasPrefix("settings-quicklinks")
     let bookmarks = [

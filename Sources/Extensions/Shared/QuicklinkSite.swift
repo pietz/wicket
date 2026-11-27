@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-struct QuicklinkSite {
+struct QuicklinkSite: Sendable {
   let home: URL
 
   init?(_ url: URL) {

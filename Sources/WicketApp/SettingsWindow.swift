@@ -491,7 +491,16 @@ struct SettingsPane: View {
       extensions.problems[id] != nil
       ? "exclamationmark.triangle" : Self.builtins[id]?.1 ?? extensions.commands[id]?.manifest.icon
     return HStack {
-      Label(title(id), systemImage: icon ?? "puzzlepiece.extension")
+      if let icon, ExtensionIcons.fileType(icon) != nil, let command = extensions.commands[id] {
+        Label {
+          Text(title(id))
+        } icon: {
+          ExtensionIcon(value: icon, command: command, host: extensions, symbolSize: 13)
+            .frame(width: 16, height: 16)
+        }
+      } else {
+        Label(title(id), systemImage: icon ?? "puzzlepiece.extension")
+      }
       Spacer()
       if extensions.locations[id]?.shadowsBuiltIn == true {
         Image(systemName: "square.on.square")

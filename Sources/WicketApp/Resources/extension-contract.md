@@ -31,7 +31,7 @@ Every manifest with a `command` must set `"contract":2`. Omitted defaults to 1. 
 
 ### Icons
 
-Use `icon` in the manifest or on an item for an SF Symbol name or a local image file. A value ending in `.png` or `.svg` (case-insensitive) is a file path. Every other value is treated as an SF Symbol name. URLs are invalid. Relative paths must resolve inside the extension folder. Absolute paths must resolve inside the extension folder or that extension's `WICKET_DATA_DIR`. Wicket follows symlinks before checking those boundaries and requires a readable PNG or SVG of the named type.
+Use `icon` in the manifest or on an item for an SF Symbol name or a local image file. A value ending in `.png` or `.svg` (case-insensitive) is a file path. Every other value is treated as an SF Symbol name. URLs are invalid. Relative paths must resolve inside the extension folder. Absolute paths must resolve inside the extension folder or that extension's `WICKET_DATA_DIR`. Wicket follows symlinks before checking those boundaries and requires a readable PNG or SVG of the named type, at most 256 KiB. While a new image is being decoded, its row shows the fallback symbol.
 
 An omitted or unusable item icon falls back to the manifest icon. If that is also unavailable, Wicket uses the `app` symbol. Items that open or reveal a local file use its native file icon unless the item specifies an image path. Icons in Markdown body tags use SF Symbol names.
 
@@ -281,7 +281,7 @@ Add bookmarks and site searches in Settings ▸ Extensions ▸ Quicklinks, or ed
 
 Bookmarks open directly and can have a keyword. Site searches take a keyword and an HTTP(S) template with a fixed host and `{query}` in a path segment or query value. `yt cats` fills the query. `yt` followed by Return opens the query prompt. Quicklinks encodes the query before opening the URL.
 
-After opening a web bookmark or submitting a site search, built-in Quicklinks looks for the site's declared favicon at its root and then tries `/favicon.ico`. It saves a PNG in `WICKET_DATA_DIR` as `favicon-<SHA-256 of the site root URL>.png` and shares it across entries for the same scheme, host, and port. Browsing and typing use the existing cache. Rows without a cached image show a globe.
+After a web bookmark or site search opens successfully, built-in Quicklinks looks for the site's declared favicon at its root and then tries `/favicon.ico`. The icon request and any redirects must use the bookmarked origin, which can upgrade from HTTP to HTTPS on the same host. It saves a PNG in `WICKET_DATA_DIR` as `favicon-<SHA-256 of the site root URL>.png` and shares it across entries for the same scheme, host, and port. Browsing and typing use the existing cache. Rows without a cached image show a globe.
 
 Record a hotkey in Settings or add a binding to `config.json` while keeping existing bindings. A search binding opens the prompt, and a bookmark binding opens its URL.
 

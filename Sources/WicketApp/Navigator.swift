@@ -686,7 +686,7 @@ final class Navigator {
     }
     pendingReturn = nil
     guard plan == .run, let (action, result) = pick(chosen), !activate(action, from: result) else { return }
-    surface?.perform(.run(action, from: result))
+    performOnSurface(action, from: result, recording: true)
   }
 
   // MARK: Switching screens
@@ -1100,8 +1100,15 @@ final class Navigator {
   /// A hotkey's copy, paste, open or reveal (`LauncherModel.press`), done as Return on its item would. The
   /// panel shows only to say why it could not, such as a paste without Accessibility access.
   func perform(_ action: RowAction, from result: Result? = nil) {
-    if !activate(action, from: result) { surface?.perform(.run(action, from: nil)) }
+    if !activate(action, from: result) { performOnSurface(action, from: result, recording: false) }
     if actionProblem != nil, surface?.isShown == false { surface?.show { [self] in refresh() } }
+  }
+  private func performOnSurface(_ action: RowAction, from result: Result?, recording: Bool) {
+    if surface?.perform(.run(action, from: recording ? result : nil)) == true,
+      case .open(let url) = action.kind
+    {
+      extensions.cacheBookmarkIcon(url, from: result)
+    }
   }
   /// What the user runs, whoever asked: Return, a button, a menu item or a link. Moving between screens,
   /// sending questions and removing a hotkey happen here; effects on the panel and the system (copy,
@@ -1151,7 +1158,6 @@ final class Navigator {
         actionProblem = refusal
         return true
       }
-      if case .open(let url) = action.kind { extensions.cacheBookmarkIcon(url, from: result) }
       return false
     case .copy, .paste, .clip, .hotkey: return false
     }

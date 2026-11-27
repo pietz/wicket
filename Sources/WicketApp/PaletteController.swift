@@ -149,6 +149,10 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     root.sizingOptions = []
     panel.contentView = root
     renderer.onHeight = { [weak self] in self?.resize() }
+    model.extensions.onIconChange = { [weak self] in
+      guard let self, isOpen else { return }
+      renderer.refreshExtensionIcons()
+    }
     renderer.onTarget = { [weak navigator] id, revision in
       navigator?.clickTarget(id, revision: revision)
     }
@@ -221,7 +225,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     return await renderer.measure(page, turn: turn)
   }
   var isShown: Bool { isOpen }
-  func perform(_ effect: PaletteEffect) {
+  @discardableResult func perform(_ effect: PaletteEffect) -> Bool {
     switch effect {
     case .hide: hide()
     case .settings: showSettings()
@@ -229,8 +233,9 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       hide()
       settings?.show(section: 3, list: destination)
     case .checkForUpdates: model.checkForUpdates()
-    case .run(let action, let result): perform(action, from: result)
+    case .run(let action, let result): return perform(action, from: result)
     }
+    return true
   }
   /// The native Settings window, which the launcher leaves for.
   func showSettings() {
@@ -341,13 +346,13 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   func run(_ chosen: RowAction? = nil) { navigator.run(chosen) }
   /// What Return, a button or a menu item chose that leaves the screens: the effects on the panel and the
   /// system.
-  private func perform(_ action: RowAction, from result: Result?) {
+  private func perform(_ action: RowAction, from result: Result?) -> Bool {
     // A hotkey's paste goes to the app in front, not the one the panel last showed over.
     if !isOpen { previousApp = NSWorkspace.shared.frontmostApplication }
     func record() { if let result { navigator.record(result) } }
     switch action.kind {
     case .copy, .clip(_, paste: false):
-      guard writePasteboard(action.kind) else { return }
+      guard writePasteboard(action.kind) else { return false }
       record()
       hide()
     case .hotkey(let target, record: true):
@@ -355,7 +360,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       recorder.record(target, in: panel, store: model.store, pausing: pauseHotkeys)
     case .run, .send, .ask, .detail, .field, .hotkey, .grant, .checkForUpdates, .dismissNotice, .editList,
       .save:
-      break
+      return false
     case .reveal(let url):
       NSWorkspace.shared.activateFileViewerSelecting([url])
       record()
@@ -367,9 +372,9 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       else {
         navigator.actionProblem =
           "Paste requires Accessibility access for Wicket and a previous app. Enable it in System Settings, then reopen Wicket."
-        return
+        return false
       }
-      guard writePasteboard(action.kind) else { return }
+      guard writePasteboard(action.kind) else { return false }
       record()
       hide()
       previousApp.activate()
@@ -385,13 +390,13 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       }
     case .open(let url):
       if !url.isFileURL || url.pathExtension.lowercased() != "app" {
-        if NSWorkspace.shared.open(url) {
-          record()
-          hide()
-        } else {
+        guard NSWorkspace.shared.open(url) else {
           navigator.actionProblem = "Could not open \(url.absoluteString)"
+          return false
         }
-        return
+        record()
+        hide()
+        return true
       }
       record()
       hide()
@@ -401,6 +406,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
         if !isOpen { show(listen: false) }
       }
     }
+    return true
   }
   /// Writes a copy or paste action's content: its text, or a kept image resolved from its ID now. False, with
   /// the reason shown, when the image is gone.

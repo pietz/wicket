@@ -682,47 +682,55 @@ struct LauncherView: View {
     ).height > 34
   }
   @ViewBuilder private func icon(_ result: Result) -> some View {
-    let value = result.row.icon
-    if let url = result.row.actions.first?.fileURL, ExtensionIcons.prefersNativeFile(value) {
+    if let url = ExtensionIcons.nativeFile(for: result.row) {
       Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable()
     } else if let command = navigator.extensions.commands[result.provider] {
-      let manifest = command.manifest.icon
-      let (paths, fallback) = ExtensionIcons.choices(value, manifest: manifest)
-      if paths.isEmpty {
-        Self.symbol(fallback)
-      } else {
-        RowImage(
-          request: .init(paths: paths, scope: navigator.extensions.iconScope(for: command)),
-          fallback: fallback)
-      }
+      ExtensionIcon(value: result.row.icon, command: command, host: navigator.extensions)
     } else {
-      Self.symbol(value ?? "app")
+      Image(systemName: result.row.icon ?? "app").font(.system(size: 20)).foregroundStyle(.secondary)
     }
   }
+}
 
-  fileprivate static func symbol(_ name: String) -> some View {
-    Image(systemName: name).font(.system(size: 20)).foregroundStyle(.secondary)
+struct ExtensionIcon: View {
+  let value: String?
+  let command: ExtensionCommand
+  let host: ExtensionHost
+  var symbolSize: CGFloat = 20
+
+  var body: some View {
+    let scope = host.iconScope(for: command)
+    let (paths, fallback) = ExtensionIcons.choices(value, manifest: scope.manifest)
+    if paths.isEmpty {
+      Image(systemName: fallback).font(.system(size: symbolSize)).foregroundStyle(.secondary)
+    } else {
+      let _ = host.iconRevision
+      RowImage(
+        version: ExtensionIcons.Request(paths: paths, scope: scope).version,
+        fallback: fallback, symbolSize: symbolSize)
+    }
   }
 }
 
 private struct RowImage: View {
-  let request: ExtensionIcons.Request
+  let version: ExtensionIcons.Version
   let fallback: String
-  @State private var decoded: (request: ExtensionIcons.Request, image: CGImage)?
+  let symbolSize: CGFloat
+  @State private var decoded: (version: ExtensionIcons.Version, image: CGImage)?
 
   var body: some View {
     Group {
-      if let decoded, decoded.request == request {
-        Image(decorative: decoded.image, scale: 3)
+      if let image = decoded?.version == version ? decoded?.image : ExtensionIcons.cached(version)?.image {
+        Image(decorative: image, scale: 3)
           .resizable().scaledToFit().clipShape(.rect(cornerRadius: 4))
       } else {
-        LauncherView.symbol(fallback)
+        Image(systemName: fallback).font(.system(size: symbolSize)).foregroundStyle(.secondary)
       }
     }
-    .task(id: request) {
-      let image = await ExtensionIcons.shared.image(for: request)
+    .task(id: version) {
+      let icon = await ExtensionIcons.load(version)
       guard !Task.isCancelled else { return }
-      decoded = image.map { (request, $0) }
+      decoded = icon.image.map { (version, $0) }
     }
   }
 }

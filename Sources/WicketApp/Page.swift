@@ -190,8 +190,7 @@ struct Page: Equatable, Sendable {
       own.append(row)
       let values = [("title", row.title)] + (row.subtitle.map { [("subtitle", $0)] } ?? [])
       var symbol = row.icon ?? "app"
-      let hasFile = item.actions.first?.fileURL != nil
-      if let iconScope, !(hasFile && ExtensionIcons.prefersNativeFile(row.icon)) {
+      if let iconScope, ExtensionIcons.nativeFile(for: item) == nil {
         let choice = ExtensionIcons.choices(row.icon, manifest: iconScope.manifest)
         symbol = choice.symbol
         if !choice.paths.isEmpty { iconRequests[row.id] = .init(paths: choice.paths, scope: iconScope) }

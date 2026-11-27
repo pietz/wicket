@@ -161,8 +161,8 @@ func answering(_ title: String) -> String {
   model.navigator.input = ""
   await model.navigator.settled()
   #expect(model.navigator.results.map(\.row.title) == ["Beta Docs", "Alpha", "Gamma"])
-  // Inside its own command an item shows the extension's icon too, and no subtitle of the host's.
-  #expect(model.navigator.results.allSatisfy { $0.row.icon == "bookmark" && $0.row.subtitle == nil })
+  // Inside its command, the extension's icon remains a presentation fallback.
+  #expect(model.navigator.results.allSatisfy { $0.row.icon == nil && $0.row.subtitle == nil })
   model.navigator.input = "docs"
   await model.navigator.settled()
   // Filtered and ordered like any command's items: an exact keyword before the manifest's order.

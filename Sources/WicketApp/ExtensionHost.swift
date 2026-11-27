@@ -117,7 +117,6 @@ struct ExtensionCommand: Sendable, Equatable {
     itemIndex.matches(input).filter { $0.entryList != nil }
       .map { shown($0, atRoot: false, subtitle: $0.subtitle) }
   }
-  /// An item takes the extension's icon where it has none.
   private func shown(_ row: Row, atRoot: Bool, subtitle: String?) -> Row {
     // Keep stock IDs inside a command unless they use a prefix reserved for displayed items.
     var id = row.id
@@ -127,7 +126,7 @@ struct ExtensionCommand: Sendable, Equatable {
       id = "item:" + id
     }
     var shown = Row(
-      id: id, title: row.title, subtitle: subtitle, icon: row.icon ?? manifest.icon, actions: row.actions,
+      id: id, title: row.title, subtitle: subtitle, icon: row.icon, actions: row.actions,
       keywords: row.keywords, prominent: row.prominent, detail: row.detail)
     shown.entryList = row.entryList
     shown.indexedItemID = row.id
@@ -182,7 +181,10 @@ final class ExtensionHost {
   nonisolated static let bundledFolder = Bundle.main.resourceURL?.appending(path: "Extensions")
   private let runner: ExtensionRunner
   private static let quicklinksID = "extension:links-search"
-  private var quicklinkIconRevision = 0
+  private(set) var iconRevision = 0 {
+    didSet { onIconChange?() }
+  }
+  var onIconChange: (() -> Void)?
   private let runtime: RuntimeRecorder?
   /// What macOS grants Wicket, checked before a program that declares permissions runs; tests replace it.
   var permissions = Permissions.system
@@ -272,15 +274,14 @@ final class ExtensionHost {
   }
   func iconScope(for command: ExtensionCommand) -> ExtensionIcons.Scope {
     .init(
-      folder: command.folder, data: runner.dataDirectory(for: command.id), manifest: command.manifest.icon,
-      revision: isBundledQuicklinks(command) ? quicklinkIconRevision : 0)
+      folder: command.folder, data: runner.dataDirectory(for: command.id), manifest: command.manifest.icon)
   }
 
   private func isBundledQuicklinks(_ command: ExtensionCommand) -> Bool {
     command.id == Self.quicklinksID && command.folder == locations[command.id]?.bundledFolder
   }
 
-  /// Bookmarks keep their native open action. The submitted cache request runs after dispatching it.
+  /// Bookmarks keep their native open action. The submitted cache request runs only if it succeeds.
   func cacheBookmarkIcon(_ url: URL, from result: Result?) {
     guard result?.provider == Self.quicklinksID, result?.row.entryList == "links",
       let command = commands[Self.quicklinksID], isBundledQuicklinks(command),
@@ -347,6 +348,7 @@ final class ExtensionHost {
         discoveryProblems = problems
         let changed = install(commands.mapValues(configured))
         if !changed.isEmpty { onCatalogChange?(changed) }
+        iconRevision += 1
         return
       }
     }
@@ -504,7 +506,7 @@ final class ExtensionHost {
       if isBundledQuicklinks(command), request.submitted,
         request.action == "open-link" || request.action == "cache-icon"
       {
-        quicklinkIconRevision += 1
+        iconRevision += 1
       }
     }
     return try await withTaskCancellationHandler {

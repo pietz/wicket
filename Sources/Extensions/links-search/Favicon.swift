@@ -15,13 +15,13 @@ func cacheFavicon(for url: URL) async {
   config.urlCache = nil
   config.timeoutIntervalForRequest = 1.25
   config.timeoutIntervalForResource = 1.25
-  let session = URLSession(configuration: config)
+  let session = URLSession(configuration: config, delegate: FaviconRedirects(site: site), delegateQueue: nil)
   defer { session.invalidateAndCancel() }
   let page = await download(site.home, from: session, allowPrefix: true)
   let pageURL = page?.url ?? site.home
-  let declarations = page.map { declaredIcons(in: $0.data, relativeTo: pageURL) } ?? []
-  let home = QuicklinkSite(pageURL)?.home ?? site.home
-  for icon in declarations + [home.appending(path: "favicon.ico")] {
+  let origin = QuicklinkSite(pageURL) ?? site
+  let declarations = page.map { declaredIcons(in: $0.data, relativeTo: pageURL, origin: origin) } ?? []
+  for icon in declarations + [origin.home.appending(path: "favicon.ico")] {
     guard let data = await download(icon, from: session)?.data, let image = faviconImage(data),
       let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
     else { continue }
@@ -33,7 +33,7 @@ func cacheFavicon(for url: URL) async {
 private func download(
   _ url: URL, from session: URLSession, allowPrefix: Bool = false
 ) async -> (data: Data, url: URL)? {
-  let limit = 512 * 1024
+  let limit = allowPrefix ? 512 * 1024 : IconRaster.maxIconBytes
   do {
     let (bytes, response) = try await session.bytes(for: URLRequest(url: url))
     defer { bytes.task.cancel() }
@@ -55,25 +55,55 @@ private func download(
   }
 }
 
-private func declaredIcons(in data: Data, relativeTo page: URL) -> [URL] {
+extension QuicklinkSite {
+  fileprivate func allows(_ url: URL) -> Bool {
+    guard url.user == nil, url.password == nil, let destination = QuicklinkSite(url) else { return false }
+    if home == destination.home { return true }
+    let next = destination.home
+    return home.scheme == "http" && next.scheme == "https" && home.host == next.host
+      && (home.port.map { $0 == (next.port ?? 443) } ?? (next.port == nil))
+  }
+}
+
+private final class FaviconRedirects: NSObject, URLSessionTaskDelegate {
+  let site: QuicklinkSite
+  init(site: QuicklinkSite) { self.site = site }
+
+  func urlSession(
+    _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+    newRequest request: URLRequest
+  ) async -> URLRequest? {
+    guard let url = request.url, site.allows(url),
+      response.url.flatMap(QuicklinkSite.init)?.allows(url) == true
+    else { return nil }
+    return request
+  }
+}
+
+private func declaredIcons(in data: Data, relativeTo page: URL, origin: QuicklinkSite) -> [URL] {
   let html = String(decoding: data, as: UTF8.self)
-  let tags = html.matches(of: /(?i)<link\b(?:[^>"']|"[^"]*"|'[^']*')*>/)
-  var icons: [URL] = []
-  for tag in tags {
-    let attrs = tag.0.matches(of: /(?i)\s(rel|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/)
-    var rel = ""
-    var href: String?
-    for (_, name, quoted, single, bare) in attrs.map(\.output) {
-      let value = String(quoted ?? single ?? bare ?? "")
-      if name.lowercased() == "rel" { rel = value.lowercased() } else { href = value }
+  let tags = html.matches(of: /(?i)<(base|link)\b(?:[^>"']|"[^"]*"|'[^']*')*>/)
+  func attribute(_ name: String, in tag: Substring) -> String? {
+    for match in tag.matches(of: /(?i)\s(rel|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>\x60]+))/) {
+      let (_, key, quoted, single, bare) = match.output
+      if key.lowercased() == name { return (quoted ?? single ?? bare).map(String.init) }
     }
-    let relations = rel.split(whereSeparator: \.isWhitespace)
+    return nil
+  }
+  func resolve(_ href: String, relativeTo url: URL) -> URL? {
+    URL(string: href.replacingOccurrences(of: "&amp;", with: "&"), relativeTo: url)?.absoluteURL
+  }
+  let base =
+    tags.lazy.filter { $0.1.lowercased() == "base" }
+    .compactMap { attribute("href", in: $0.0) }.first.flatMap { resolve($0, relativeTo: page) } ?? page
+  var icons: [URL] = []
+  for tag in tags where tag.1.lowercased() == "link" {
+    let relations = attribute("rel", in: tag.0)?.lowercased().split(whereSeparator: \.isWhitespace) ?? []
     guard
       relations.contains(where: { ["icon", "apple-touch-icon", "apple-touch-icon-precomposed"].contains($0) }
       ),
-      let href, !href.isEmpty,
-      let url = URL(string: href.replacingOccurrences(of: "&amp;", with: "&"), relativeTo: page)?.absoluteURL,
-      url.user == nil, url.password == nil, QuicklinkSite(url) != nil, !icons.contains(url)
+      let href = attribute("href", in: tag.0), !href.isEmpty,
+      let url = resolve(href, relativeTo: base), origin.allows(url), !icons.contains(url)
     else { continue }
     icons.append(url)
     if icons.count == 2 { break }

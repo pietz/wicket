@@ -431,6 +431,7 @@ private func fields(_ values: [String: String]) throws -> String {
   await model.extensions.reload()
   let command = try #require(model.extensions.commands[links])
   let scope = model.extensions.iconScope(for: command)
+  let revision = model.extensions.iconRevision
   let site = try #require(URL(string: base).flatMap(QuicklinkSite.init))
   let cache = site.favicon(in: scope.data)
   #expect(command.items.map(\.icon) == [cache.path, cache.path])
@@ -442,11 +443,23 @@ private func fields(_ values: [String: String]) throws -> String {
   let bookmark = try #require(navigator.results.first)
   #expect(bookmark.row.icon == cache.path)
   #expect(!FileManager.default.fileExists(atPath: requests.path))
+  let hotkey = HotkeyTarget(target: links, item: "home", entryList: "links")
+  surface.effectSucceeds = false
+  navigator.run()
+  model.press(hotkey)
+  #expect(
+    surface.effects.suffix(2) == [
+      .run(bookmark.row.actions[0], from: bookmark), .run(bookmark.row.actions[0], from: nil),
+    ])
+  try await Task.sleep(for: .milliseconds(300))
+  #expect(!FileManager.default.fileExists(atPath: requests.path))
+  #expect(model.extensions.iconRevision == revision)
+  surface.effectSucceeds = true
   navigator.run()
   #expect(surface.effects.last == .run(bookmark.row.actions[0], from: bookmark))
   try #require(await eventually(within: .seconds(5)) { FileManager.default.fileExists(atPath: cache.path) })
   #expect(try String(contentsOf: requests, encoding: .utf8) == "/\n/assets/icon.png\n")
-  #expect(await eventually { model.extensions.iconScope(for: command).revision > scope.revision })
+  #expect(await eventually { model.extensions.iconRevision > revision })
 
   // Query and path differences share the bookmark's site cache.
   navigator.input = "find team notes"
@@ -459,10 +472,10 @@ private func fields(_ values: [String: String]) throws -> String {
   // A hotkey still opens the bookmark through the native action even when its icon is missing.
   try FileManager.default.removeItem(at: cache)
   try "touch".write(to: mode, atomically: true, encoding: .utf8)
-  model.press(HotkeyTarget(target: links, item: "home", entryList: "links"))
+  model.press(hotkey)
   #expect(surface.effects.last == .run(bookmark.row.actions[0], from: nil))
   try #require(await eventually(within: .seconds(5)) { FileManager.default.fileExists(atPath: cache.path) })
-  #expect(try String(contentsOf: requests, encoding: .utf8).hasSuffix("/\n/touch.png\n"))
+  #expect(try String(contentsOf: requests, encoding: .utf8).hasSuffix("/\n/same-site\n/touch.png\n"))
 
   try FileManager.default.removeItem(at: cache)
   try "oversized".write(to: mode, atomically: true, encoding: .utf8)
@@ -476,6 +489,20 @@ private func fields(_ values: [String: String]) throws -> String {
   let image = try #require(CGImageSourceCreateWithData(data as CFData, nil))
   #expect(CGImageSourceCreateImageAtIndex(image, 0, nil)?.width == 128)
   #expect(!FileManager.default.fileExists(atPath: opened.path))
+
+  for (scenario, expected) in [
+    ("foreign-icons", "/ opened\n/redirect-icon opened\n/favicon.ico opened\n"),
+    ("foreign-home", "/ opened\n/favicon.ico opened\n"),
+  ] {
+    try FileManager.default.removeItem(at: cache)
+    try FileManager.default.removeItem(at: requests)
+    try scenario.write(to: mode, atomically: true, encoding: .utf8)
+    navigator.run()
+    await navigator.settled()
+    #expect(try takeOpenedURL(in: folder) == base + "/search?q=team%20notes")
+    #expect(try String(contentsOf: requests, encoding: .utf8) == expected)
+    #expect(FileManager.default.fileExists(atPath: cache.path))
+  }
 
   try FileManager.default.removeItem(at: cache)
   try "missing".write(to: mode, atomically: true, encoding: .utf8)
@@ -502,24 +529,39 @@ private let faviconServer = """
           except (BrokenPipeError, ConnectionResetError):
               pass
 
+      def redirect(self, location):
+          self.send_response(302)
+          self.send_header("Location", location)
+          self.send_header("Content-Length", "0")
+          self.end_headers()
+
       def do_GET(self):
           opened = any(Path(".").glob("bundle/extensions/links-search/opened"))
           with open("requests", "a") as log:
               print(self.path + (" opened" if opened else ""), file=log)
           mode = Path("mode").read_text()
           png = Path("favicon.png").read_bytes()
-          if self.path == "/":
+          foreign = self.headers["Host"].replace("127.0.0.1", "localhost")
+          if self.path == "/" and mode == "foreign-home":
+              self.redirect(f"http://{foreign}/redirected-home")
+          elif self.path == "/":
               links = {
-                  "declared": '<LINK HREF=assets/icon.png REL="shortcut icon">',
-                  "touch": '<link rel="apple-touch-icon" href="/touch.png">',
+                  "declared": '<LINK HREF=icon.png REL="shortcut icon"><base href="/assets/">',
+                  "touch": '<link rel="apple-touch-icon" href="/same-site">',
                   "oversized": '<link rel=icon href=/huge>',
+                  "foreign-icons": f'<link rel=icon href="http://{foreign}/foreign.png">'
+                                   '<link rel=icon href=/redirect-icon>',
               }.get(mode, "")
               self.reply(links.encode(), "text/html")
-          elif self.path in ("/assets/icon.png", "/touch.png"):
+          elif self.path == "/same-site":
+              self.redirect("/touch.png")
+          elif self.path == "/redirect-icon":
+              self.redirect(f"http://{foreign}/redirected.png")
+          elif self.path in ("/assets/icon.png", "/touch.png", "/foreign.png", "/redirected.png"):
               self.reply(png, "image/png")
           elif self.path == "/huge":
-              self.reply(b"x" * (512 * 1024 + 1), "image/png")
-          elif self.path == "/favicon.ico" and mode == "oversized":
+              self.reply(b"x" * (256 * 1024 + 1), "image/png")
+          elif self.path == "/favicon.ico" and mode in ("oversized", "foreign-icons", "foreign-home"):
               directory = pack("<HHHBBBBHHII", 0, 1, 1, 144, 144, 0, 0, 1, 32, len(png), 22)
               self.reply(directory + png, "image/x-icon")
           else:

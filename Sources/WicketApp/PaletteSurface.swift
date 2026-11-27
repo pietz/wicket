@@ -15,7 +15,8 @@ import Foundation
   /// Shows the hidden panel without listening, on what `arriving` commits: it runs once a kept conversation
   /// that ran out has ended and before anything is drawn, so the screen left behind never shows first.
   func show(arriving: @escaping () -> Void)
-  func perform(_ effect: PaletteEffect)
+  /// Reports whether the effect succeeded or was accepted for asynchronous completion.
+  @discardableResult func perform(_ effect: PaletteEffect) -> Bool
 }
 enum PaletteChange: Equatable {
   /// What the screens show: the panel renders the page and sizes itself at once.

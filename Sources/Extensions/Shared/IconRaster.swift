@@ -2,6 +2,8 @@ import AppKit
 import ImageIO
 
 enum IconRaster {
+  static let maxIconBytes = 256 * 1024
+
   static func thumbnail(_ source: CGImageSource, index: Int = 0, maxSize: Int) -> CGImage? {
     guard
       let image = CGImageSourceCreateThumbnailAtIndex(
@@ -17,7 +19,8 @@ enum IconRaster {
   }
 
   static func svg(_ data: Data, maxSize: Int) -> CGImage? {
-    guard let xml = try? XMLDocument(data: data, options: .nodeLoadExternalEntitiesNever),
+    guard data.count <= maxIconBytes,
+      let xml = try? XMLDocument(data: data, options: .nodeLoadExternalEntitiesNever),
       xml.rootElement()?.localName == "svg",
       let image = NSImage(data: data), image.isValid
     else { return nil }

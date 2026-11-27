@@ -87,6 +87,8 @@ final class AnswerRenderer {
   private let open: @MainActor (URL) -> Void
   private var watcher: FileWatcher?
   private var renderTask: Task<Void, Never>?
+  private var iconTask: Task<Void, Never>?
+  private var iconVersions: [String: ExtensionIcons.Version] = [:]
   private var releaseTask: Task<Void, Never>?
   private var ready = false
   private var shellLoad: Task<Void, any Error>?
@@ -165,6 +167,7 @@ final class AnswerRenderer {
     staging = nil
     releaseTask?.cancel()
     source = page
+    refreshExtensionIcons()
     self.turn = turn
     self.streaming = streaming
     revision += 1
@@ -228,6 +231,36 @@ final class AnswerRenderer {
     revision += 1
     schedule()
   }
+  func refreshExtensionIcons() {
+    var byRequest: [ExtensionIcons.Request: ExtensionIcons.Version] = [:]
+    let versions = source.iconRequests.mapValues { request in
+      if let kept = byRequest[request] { return kept }
+      let version = request.version
+      byRequest[request] = version
+      return version
+    }
+    guard versions != iconVersions else { return }
+    iconVersions = versions
+    iconTask?.cancel()
+    let missing = Set(versions.values).filter { ExtensionIcons.cached($0) == nil }
+    iconTask = Task { [weak self] in
+      await withTaskGroup(of: Bool.self) { group in
+        for version in missing {
+          group.addTask { await ExtensionIcons.load(version).image != nil }
+        }
+        for await loaded in group {
+          guard let self, !Task.isCancelled else { break }
+          if loaded {
+            self.revision += 1
+            self.schedule()
+          }
+        }
+      }
+    }
+    revision += 1
+    schedule()
+  }
+
   private func schedule() {
     guard renderTask == nil else { return }
     renderID += 1
@@ -260,7 +293,7 @@ final class AnswerRenderer {
           let text = shown.source
           let icons =
             PageIcons.stylesheet(for: shown)
-            + (await PageIcons.extensionStylesheet(for: shown))
+            + PageIcons.extensionStylesheet(for: iconVersions)
             + (await PageIcons.picture(shown.picture))
           let reset = currentTurn != renderedTurn
           // Whether this pass measures a page not shown yet, taken before it suspends: an `update` meanwhile
@@ -364,6 +397,9 @@ final class AnswerRenderer {
     renderID += 1
     renderTask?.cancel()
     renderTask = nil
+    iconTask?.cancel()
+    iconTask = nil
+    iconVersions.removeAll()
     resumeWaiting()
     watcher = nil
     shellLoad?.cancel()
