@@ -12,7 +12,8 @@ struct Look: Identifiable {
   let note: String
   var pillClear = false
   var cardClear = false
-  var tint = 0.2  // Wicket today: 0.8 × (1 − 0.75)
+  var tint = 0.2
+  var transparency = 0.5
   var rim = Rim.none
   var backing = 0.0
   var lightInk = false
@@ -25,31 +26,37 @@ struct Look: Identifiable {
 }
 
 let looks: [Look] = [
-  Look(id: 0, name: "Glass", note: "Clear glass with its own blur; light or dark follows ⌘D", pillClear: true, cardClear: true, tint: 0, backing: 0.5, native: 1),
+  Look(id: 0, name: "Glass", note: "Wicket’s tinted glass", pillClear: true, cardClear: true, native: 1),
 ]
 
 @MainActor final class Lab: ObservableObject {
   @Published var selection = 0
   @Published var appearance = 1  // 0 system, 1 light, 2 dark
-  @Published var amount: [Int: Double] = [:]  // ←/→ per look: tint, or backing for dark-backed looks
+  @Published var amount: [Int: Double] = [:]  // ←/→ per look: transparency, tint, or backing
   @Published var joined: Set<Int> = []  // ⌘J flips one piece per look
-  @Published var radius: Double = 5  // ⇧←/→: blur strength, 0–10
+  @Published var radius: Double = 5  // ⇧←/→: Blur slider, 0–10
   @Published var matchBar = true  // ⌘M: scale the bar's blur like the system does (bar default 5.6 vs card 10)
   var look: Look {
     var l = looks[selection]
     if let a = amount[l.id] {
-      if l.scrim > 0 { l.scrim = a } else if l.backing > 0 { l.backing = a } else { l.tint = a }
+      if l.native == 1 { l.transparency = a }
+      else if l.scrim > 0 { l.scrim = a } else if l.backing > 0 { l.backing = a } else { l.tint = a }
     }
     if joined.contains(l.id) { l.onePiece.toggle() }
     return l
   }
   var amountLabel: String {
     let l = look
+    if l.native == 1 { return "transparency \(Int((l.transparency * 100).rounded()))%" }
     if l.scrim > 0 { return "scrim \(Int((l.scrim * 100).rounded()))%" }
     return l.backing > 0 ? "transparency \(Int(((1 - l.backing) * 100).rounded()))%" : "tint \(Int((l.tint * 100).rounded()))%"
   }
   func nudge(_ step: Double) {
     let l = look
+    if l.native == 1 {
+      amount[l.id] = min(1, max(0, l.transparency + step))
+      return
+    }
     let current = l.scrim > 0 ? l.scrim : l.backing > 0 ? l.backing : l.tint
     amount[l.id] = min(1, max(0.01, current + step))
   }
@@ -164,64 +171,6 @@ struct Blur: NSViewRepresentable {
     image.resizingMode = .stretch
     return image
   }
-}
-
-/// AppKit clear glass whose own backdrop blur is turned up: the glass keeps its lens and rim and blurs the
-/// same pixels it refracts. Patches private `glassBackground` filter inputs; lab only.
-struct GlassSlab: NSViewRepresentable {
-  let radius: CGFloat
-  let blur: Double
-  let mix: Double
-  final class Slab: NSView {
-    let glass = NSGlassEffectView()
-    var blur = 10.0, mix = 0.55
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    override func layout() {
-      super.layout()
-      glass.frame = bounds
-      DispatchQueue.main.async { [weak self] in self?.patch() }
-    }
-    func patch() {
-      guard let layer = glass.layer else { return }
-      probeGlassBlur(in: layer, radius: blur, mix: mix)
-    }
-  }
-  func makeNSView(context: Context) -> Slab {
-    let view = Slab()
-    view.wantsLayer = true
-    view.glass.style = .clear
-    view.glass.contentView = NSView()
-    view.addSubview(view.glass)
-    return view
-  }
-  func updateNSView(_ view: Slab, context: Context) {
-    view.glass.cornerRadius = radius
-    view.blur = blur
-    view.mix = mix
-    view.patch()
-  }
-}
-
-@MainActor
-@discardableResult
-func probeGlassBlur(in layer: CALayer, radius: Double, mix: Double) -> Int {
-  var changed = 0
-  if let filters = layer.filters {
-    let updated = filters.map { item -> Any in
-      guard let original = item as? NSObject,
-        original.value(forKey: "type") as? String == "glassBackground",
-        let keys = original.value(forKey: "inputKeys") as? [String],
-        keys.contains("inputBlurRadius"),
-        let copy = (original as? NSCopying)?.copy(with: nil) as? NSObject
-      else { return item }
-      copy.setValue(max(0, radius), forKey: "inputBlurRadius")
-      changed += 1
-      return copy
-    }
-    if changed > 0 { layer.filters = updated }
-  }
-  for child in layer.sublayers ?? [] { changed += probeGlassBlur(in: child, radius: radius, mix: mix) }
-  return changed
 }
 
 struct WidgetRimSurface: NSViewRepresentable {
@@ -379,14 +328,15 @@ struct LabView: View {
 
   @ViewBuilder private func surface(radius: CGFloat, clear: Bool, look: Look, card: Bool) -> some View {
     let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-    if reduceTransparency {
+    if look.native == 1 {
+      GlassSurface(
+        role: card || !lab.matchBar ? .card : .pill, radius: radius, transparency: look.transparency,
+        blur: lab.radius)
+    } else if reduceTransparency {
       shape.fill(Color(nsColor: .windowBackgroundColor))
     } else {
       ZStack {
-        if look.native == 1 {
-          shape.fill((colorScheme == .dark ? Color.black : Color.white).opacity(look.backing))
-          GlassSlab(radius: radius, blur: card || !lab.matchBar ? lab.radius : lab.radius * 0.56, mix: look.tint)
-        } else if look.native == 2 {
+        if look.native == 2 {
           WidgetRimSurface(radius: radius, coverage: look.tint)
         }
         if look.native == 0 && look.blur && (card || !look.blurCardOnly) { Blur(radius: radius, blur: lab.radius) }

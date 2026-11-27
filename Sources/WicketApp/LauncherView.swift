@@ -268,13 +268,20 @@ struct LauncherView: View {
     if panel != nil { content.foregroundStyle(Ink.primary) }
   }
   private var content: some View {
-    ZStack(alignment: .top) {
+    let configuration = model.configuration
+    return ZStack(alignment: .top) {
       VStack(spacing: PaletteLayout.gap) {
-        GlassSurface(role: .pill, radius: 28, configuration: model.configuration, drawsGlass: drawsGlass)
-          .frame(height: PaletteLayout.search)
+        GlassSurface(
+          role: .pill, radius: 28, transparency: configuration.backgroundTransparency,
+          blur: configuration.blur,
+          drawsGlass: drawsGlass
+        ).frame(height: PaletteLayout.search)
         if shown.showsCard {
-          GlassSurface(role: .card, radius: 22, configuration: model.configuration, drawsGlass: drawsGlass)
-            .frame(height: cardHeight)
+          GlassSurface(
+            role: .card, radius: 22, transparency: configuration.backgroundTransparency,
+            blur: configuration.blur,
+            drawsGlass: drawsGlass
+          ).frame(height: cardHeight)
         }
       }
       VStack(spacing: PaletteLayout.gap) {

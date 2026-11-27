@@ -83,15 +83,15 @@ struct Configuration: Codable, Equatable, Sendable {
   var pendingPersonalItems: [String: ListMigration.Pending] = [:]
   var appearance = Appearance.system
   var resultsOnlyWhenTyping = false
-  /// The backing under the glass: 0 is solid (most readable), 1 none, the clear glass alone.
+  /// Transparency slider, mapped to tint and saturation by `GlassBlur`.
   var backgroundTransparency: Double = 0.5
   /// The defaults of earlier looks, which every new file stored: 0.15 before Liquid Glass (through 0.3.4),
   /// 0.75 for the frosted tint. `blur` used to distinguish newer files. A sparse file can omit `blur`,
   /// so an explicit choice of either number can record that intent separately.
   static let oldDefaultTransparencies: Set<Double> = [0.15, 0.75]
   static let transparencyIntentKey = LegacyKey.backgroundTransparencyIsExplicit.rawValue
-  /// How strongly the glass blurs what is behind it, 0 to 10 (`GlassBlur`).
-  var blur = 4.0
+  /// Blur slider, mapped to a backdrop radius by `GlassBlur`.
+  var blur = 5.0
   static let blurRange = 0.0...10.0
   static let builtins = ["apps", "files", "clipboard"]
   /// A source without an entry is on, except clipboard history, which keeps what the user copies.

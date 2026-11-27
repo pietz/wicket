@@ -2,14 +2,13 @@ import AppKit
 import ObjCBoundary
 import SwiftUI
 
-/// The search pill and the card: AppKit clear glass, whose own backdrop blur follows the Blur setting, over a
-/// backing, black in dark appearance and white in light, as opaque as Transparency leaves it. Reduce
-/// Transparency gets a solid surface; `drawsGlass` false (offscreen renders, which cannot show glass) the
-/// backing alone.
+/// Tinted AppKit clear glass for the pill and card, with a backing fill for offscreen renders and a
+/// solid surface for Reduce Transparency.
 struct GlassSurface: View {
   let role: GlassBlur.Role
   let radius: CGFloat
-  let configuration: Configuration
+  let transparency: Double
+  let blur: Double
   var drawsGlass = true
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   @Environment(\.colorSchemeContrast) private var contrast
@@ -20,13 +19,22 @@ struct GlassSurface: View {
     if reduceTransparency {
       shape.fill(Color(nsColor: .windowBackgroundColor))
     } else {
+      let increasedContrast = contrast == .increased
+      let dark = colorScheme == .dark
       ZStack {
-        shape.fill(
-          (colorScheme == .dark ? Color.black : .white).opacity(
-            GlassBlur.backing(
-              transparency: configuration.backgroundTransparency, increasedContrast: contrast == .increased)))
-        if drawsGlass { GlassSlab(radius: radius, blur: GlassBlur.radius(configuration.blur, role: role)) }
-        if contrast == .increased {
+        if drawsGlass {
+          let style = GlassBlur.style(transparency, dark: dark, increasedContrast: increasedContrast)
+          let inputs = style.inputs.merging([
+            GlassBlur.radiusKey: GlassBlur.radius(blur, role: role)
+          ]) { $1 }
+          GlassSlab(radius: radius, tint: style.tint, inputs: inputs)
+            // Recreate the slab when an input stops being patched, so AppKit supplies its own value again.
+            .id(Set(inputs.keys))
+        } else {
+          let opacity = 1 - min(1, max(0, transparency))
+          shape.fill((dark ? Color.black : .white).opacity(increasedContrast ? max(opacity, 0.9) : opacity))
+        }
+        if increasedContrast {
           shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
         }
       }
@@ -34,72 +42,96 @@ struct GlassSurface: View {
   }
 }
 
-/// How strongly the glass blurs, and the private filter input that carries it.
+/// Maps the sliders to the glass and patches the private Core Animation `glassBackground` filter.
 ///
-/// Clear glass blurs its backdrop through a private Core Animation filter, `glassBackground`, on a backdrop
-/// layer inside `NSGlassEffectView`; no public API sets its strength. Only `inputBlurRadius` changes: the
-/// `inputBlurOpacity0…4` bands fade the blur in from the edge, and raising them keeps the centre sharp. A
-/// layer copies its filters, so the filter is cloned and the array reassigned. AppKit writes its own value
-/// back whenever it rebuilds the glass (a resize, a tint or state change), so the view applies the value
-/// again after each. Missing filter, key or input, or a radius that is not a number, leaves plain clear glass
-/// over the backing: this is private API that any macOS update may change, and it must fail quietly.
+/// Unfocused desktop widgets are clear glass with a dark tint and a saturation boost, not a fill under the
+/// glass: a fill darkens the backdrop before the glass blurs it, and the glass's own white face fill then
+/// lifts it to a flat grey. The widgets were measured on macOS 27.2 (mean colour over flat swatches,
+/// surviving contrast over a checkerboard) and the slider midpoints sit at or near them. Light mode keeps a light surface
+/// for dark text instead of copying the widgets, which darken the wallpaper and switch to white text.
+///
+/// No public API sets the blur strength or the saturation. Only `inputBlurRadius` sets the strength: the
+/// `inputBlurOpacity0…4` bands fade the blur in from the edge, and raising them keeps the centre sharp.
+/// The layer copies its filters, so each change replaces the filter with a copy. AppKit restores its own
+/// values when it rebuilds the glass. This is private API that any macOS update may change: a missing or
+/// unusable input is skipped on its own, leaving plain tinted glass, with no crash and no logging.
 enum GlassBlur {
   static let filterType = "glassBackground"
   static let radiusKey = "inputBlurRadius"
-  /// Which surface the glass is: the card blurs at the Blur setting, the pill at `pillRatio` of it.
+  static let saturationKey = "inputFaceColorMatrixSaturation"
+  static let whiteKey = "inputFaceColorMatrixWhite"
+  static let blackKey = "inputFaceColorMatrixBlack"
   enum Role { case pill, card }
   /// macOS's own blur for the 56-point pill against the card's (5.56 to 10, measured in Glass Lab on macOS
   /// 27.2), so the thin pill reads like the card. A constant, because the defaults AppKit writes into
   /// Wicket's panel are not the lab's (about 0.58 for both shapes) and say nothing about the setting.
   static let pillRatio = 0.56
 
+  /// The Blur slider's midpoint is the widgets' measured radius of 1, the same in light and dark.
   static func radius(_ blur: Double, role: Role) -> Double {
-    max(0, blur) * (role == .pill ? pillRatio : 1)
+    let blur = min(10, max(0, blur))
+    let radius = blur <= 5 ? blur / 5 : 1 + (blur - 5) * 1.8
+    return radius * (role == .pill ? pillRatio : 1)
   }
 
-  /// The backing's opacity: none at full transparency, solid at none. Increase Contrast keeps it nearly
-  /// solid, as the system does with its own materials.
-  static func backing(transparency: Double, increasedContrast: Bool) -> Double {
-    let opacity = 1 - min(1, max(0, transparency))
-    return increasedContrast ? max(opacity, 0.9) : opacity
+  /// The tint and the private face inputs for the Transparency slider. One midpoint serves both modes: close
+  /// to the widgets' measured 68% tint and 2.4 boost, with enough tint that light mode's dark text stays clean
+  /// over app windows and a boost that keeps warm wallpapers from going neon. Dark also pins the face's white and black points to a normal window's: in a floating panel of a
+  /// background app AppKit lifts them (white 1.08, black 0.125), which turns the dark glass grey.
+  static func style(_ transparency: Double, dark: Bool, increasedContrast: Bool)
+    -> (tint: NSColor, inputs: [String: Double])
+  {
+    let progress = 2 * min(1, max(0, transparency))
+    let midpointAlpha = 0.75
+    let alpha =
+      progress <= 1
+      ? midpointAlpha + (1 - midpointAlpha) * (1 - progress)
+      : midpointAlpha * (2 - progress)
+    let white: CGFloat = dark ? 0 : 1
+    let tint = NSColor(
+      srgbRed: white, green: white, blue: white, alpha: increasedContrast ? max(alpha, 0.9) : alpha)
+    if increasedContrast { return (tint, [:]) }
+    let midpointSaturation = 2.0
+    let saturation = 1 + (midpointSaturation - 1) * min(1, 2 - progress)
+    return (
+      tint, dark ? [saturationKey: saturation, whiteKey: 0.88, blackKey: 0.05] : [saturationKey: saturation]
+    )
   }
 
-  /// The filter if `item` is a glass background with a blur radius; anything else, such as a Core Image
-  /// filter, which has no `type`, is left alone without asking it for keys it lacks. Every key-value call
-  /// on the private filter goes through `ObjCBoundary`, which turns its exceptions into nil.
+  /// Core Image filters have no `type`. The exception boundary also guards every private KVC call.
   static func glassBackground(_ item: Any) -> NSObject? {
     guard let filter = item as? NSObject,
       filter.responds(to: NSSelectorFromString("type")),
       filter.responds(to: NSSelectorFromString("inputKeys")),
-      WKValueForKey(filter, "type") as? String == filterType,
-      (WKValueForKey(filter, "inputKeys") as? [String])?.contains(radiusKey) == true
+      WKValueForKey(filter, "type") as? String == filterType
     else { return nil }
     return filter
   }
 
-  /// `filter`'s blur radius, when it is a finite number.
-  static func storedRadius(_ filter: NSObject) -> Double? {
-    guard let number = WKValueForKey(filter, radiusKey) as? NSNumber, number.doubleValue.isFinite
+  static func storedValue(_ filter: NSObject, key: String) -> Double? {
+    guard let number = WKValueForKey(filter, key) as? NSNumber, number.doubleValue.isFinite
     else { return nil }
     return number.doubleValue
   }
 
-  /// `filters` with each glass background's blur set to `radius` on a copy, or nil when none needs it. A
-  /// filter whose radius cannot be read, copied, or written and read back as a number fails the whole
-  /// patch, so the layer keeps the filters it has.
-  static func patched(_ filters: [Any], radius: Double) -> [Any]? {
-    guard radius.isFinite else { return nil }
+  /// Sets each input on a copy of every glass background, skipping any input the filter lacks or refuses;
+  /// returns nil when nothing changed.
+  static func patched(_ filters: [Any], inputs: [String: Double]) -> [Any]? {
     var updated = filters
     var changed = false
     for (index, item) in filters.enumerated() {
-      guard let filter = glassBackground(item) else { continue }
-      guard let stored = storedRadius(filter) else { return nil }
-      if matches(stored, radius) { continue }
-      guard let copy = WKCopy(filter) as? NSObject, storedRadius(copy) != nil,
-        WKSetValueForKey(copy, NSNumber(value: radius), radiusKey), matches(storedRadius(copy), radius)
-      else { return nil }
-      updated[index] = copy
-      changed = true
+      guard var filter = glassBackground(item), let keys = WKValueForKey(filter, "inputKeys") as? [String]
+      else { continue }
+      for (key, target) in inputs.sorted(by: { $0.key < $1.key }) {
+        guard target.isFinite, keys.contains(key),
+          let stored = storedValue(filter, key: key), !matches(stored, target),
+          let copy = WKCopy(filter) as? NSObject, storedValue(copy, key: key) != nil,
+          WKSetValueForKey(copy, NSNumber(value: target), key), matches(storedValue(copy, key: key), target)
+        else { continue }
+        filter = copy
+        updated[index] = copy
+        changed = true
+      }
     }
     return changed ? updated : nil
   }
@@ -109,28 +141,27 @@ enum GlassBlur {
     stored.map { abs($0 - value) < 0.001 } ?? false
   }
 
-  /// Sets every glass background's blur in `layer`'s tree; reassigns only the arrays that change.
-  @MainActor static func apply(_ radius: Double, in layer: CALayer) {
-    if let filters = layer.filters, let patched = patched(filters, radius: radius) { layer.filters = patched }
-    for child in layer.sublayers ?? [] { apply(radius, in: child) }
+  @MainActor static func apply(_ inputs: [String: Double], in layer: CALayer) {
+    if let filters = layer.filters, let patched = patched(filters, inputs: inputs) { layer.filters = patched }
+    for child in layer.sublayers ?? [] { apply(inputs, in: child) }
   }
 }
 
 private struct GlassSlab: NSViewRepresentable {
   let radius: CGFloat
-  /// The radius to keep, already scaled for the surface's role.
-  let blur: Double
+  let tint: NSColor
+  /// Private filter inputs to keep, the blur radius already scaled for the surface's role.
+  let inputs: [String: Double]
   func makeNSView(context: Context) -> GlassSlabView { GlassSlabView() }
   func updateNSView(_ view: GlassSlabView, context: Context) {
-    view.glass.cornerRadius = radius
-    view.blur = blur
+    view.update(radius: radius, tint: tint, inputs: inputs)
   }
 }
 
-/// Clear glass that keeps its blur at the setting through AppKit's rebuilds (`GlassBlur`).
-final class GlassSlabView: NSView {
-  let glass = NSGlassEffectView()
-  var blur = 0.0 { didSet { if blur != oldValue { scheduleApply() } } }
+/// Clear glass that reapplies its filter settings through AppKit's rebuilds.
+private final class GlassSlabView: NSView {
+  private let glass = NSGlassEffectView()
+  private var inputs: [String: Double] = [:]
   private var scheduled = false
 
   init() {
@@ -144,6 +175,16 @@ final class GlassSlabView: NSView {
     }
   }
   required init?(coder: NSCoder) { fatalError() }
+
+  func update(radius: CGFloat, tint: NSColor, inputs: [String: Double]) {
+    let radiusChanged = glass.cornerRadius != radius
+    let tintChanged = glass.tintColor != tint
+    guard radiusChanged || tintChanged || self.inputs != inputs else { return }
+    if radiusChanged { glass.cornerRadius = radius }
+    if tintChanged { glass.tintColor = tint }
+    self.inputs = inputs
+    scheduleApply()
+  }
 
   override func hitTest(_ point: NSPoint) -> NSView? { nil }
   override func layout() {
@@ -175,7 +216,7 @@ final class GlassSlabView: NSView {
   }
   @objc private func changed(_ notification: Notification) { scheduleApply() }
 
-  /// AppKit rebuilds the filter after layout and state changes, so the value goes in on the next turn.
+  /// AppKit rebuilds the filter after layout, tint and state changes. Apply the settings on the next turn.
   private func scheduleApply() {
     guard !scheduled else { return }
     scheduled = true
@@ -184,10 +225,8 @@ final class GlassSlabView: NSView {
       self?.apply()
     }
   }
-  /// Writes only when the filter's radius differs from the target (`GlassBlur.patched`), so a rebuild that
-  /// left it alone costs nothing.
   private func apply() {
     guard let layer = glass.layer else { return }
-    GlassBlur.apply(blur, in: layer)
+    GlassBlur.apply(inputs, in: layer)
   }
 }

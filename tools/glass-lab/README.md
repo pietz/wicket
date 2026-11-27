@@ -8,4 +8,4 @@ cd tools/glass-lab && swift run
 
 ↑/↓ switch look · ←/→ transparency · ⇧←/→ blur · ⌘D light/dark/system · ⌘J join pill and card · drag to move · ⌘Q quit.
 
-Add a look by appending to `looks` in `main.swift`. The "Glass" look is the one Wicket ships (`Sources/WicketApp/GlassSurface.swift`); it patches a private Core Animation filter, as the app does.
+Add a look by appending to `looks` in `main.swift`. The "Glass" look uses Wicket's [GlassSurface](../../Sources/WicketApp/GlassSurface.swift).
