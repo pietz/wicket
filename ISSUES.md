@@ -18,6 +18,7 @@ Open problems only, with user impact and next step. Delete items once fixed (git
 - **`--diagnose` reports hotkeys as registered while Set Hotkey… records**, since recording releases registrations without updating the runtime record. Next: record the pause and report `paused`.
 - **Convert accepts ASCII digits only.** Non-ASCII digits (e.g. Arabic-Indic) yield no row. Next: normalize digits in Convert's parser and regex if requested.
 - **Calculator input assumes groups of three digits.** It can reject lakh-grouped input such as `1,00,000 + 1`.
+- **Image icons written to an extension's data folder don't refresh while shown.** Only edits in the extension folder (and Quicklinks' own favicons) refresh visible rows; reopening picks the change up. Next: watch data-folder assets of visible rows if an extension needs it.
 
 ## Files
 
