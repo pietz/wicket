@@ -38,6 +38,7 @@ private let states =
     "extension-image-icons", "extension-quicklinks-icons",
     "weather-keyword", "weather-root", "weather-page", "weather-default", "convert-cached-rate",
     "caffeinate-keyword", "caffeinate-off", "caffeinate-draft", "caffeinate-on",
+    "caffeinate-started",
     "extension-targets", "extension-detail-larger", "asking", "asking-extension",
     "extension-error", "fields-empty", "fields-filled", "fields-command", "fields-open",
     "fields-long", "fields-three", "history", "history-reopened", "clipboard", "clipboard-image",
@@ -69,6 +70,7 @@ private func expectedText(_ name: String) -> [String] {
   if name == "caffeinate-off" { return ["Caffeinate", "Keep Awake", "Until you turn it off"] }
   if name == "caffeinate-draft" { return ["Keep Awake for 2 h 30 min", "Until"] }
   if name == "caffeinate-on" { return ["Awake until", "2 h 15 min left", "Turn Off", "Keep Awake"] }
+  if name == "caffeinate-started" { return ["Awake until", "2 h left", "Turn Off", "Let your Mac sleep"] }
   if name == "weather-page" || name == "weather-default" {
     return ["Overcast", "Berlin, Germany", "Next hours", "Next days", "Wind"]
   }
@@ -422,7 +424,18 @@ private let installedAgent: Void = {
           await model.navigator.settled()
         }
       }
-    case "caffeinate-keyword", "caffeinate-off", "caffeinate-draft", "caffeinate-on":
+    case "caffeinate-keyword", "caffeinate-off", "caffeinate-draft", "caffeinate-on", "caffeinate-started":
+      if name == "caffeinate-started" {
+        // A local Caffeinate that answers what the bundled one answered to a submitted `caff 2`, so
+        // nothing keeps the Mac awake.
+        var manifest = try #require(
+          JSONSerialization.jsonObject(
+            with: Data(contentsOf: bundledExtensions.appending(path: "caffeinate/wicket.json")))
+            as? [String: Any])
+        manifest["command"] = nil
+        let script = "cat >/dev/null\nprintf '%s' '" + (try recordedCaffeinateConfirmation()) + "'"
+        _ = try extensionFolder(folder, name: "caffeinate", script: script, fields: manifest)
+      }
       if name == "caffeinate-on" {
         // A record of a live process in place of a running keeper: this test process, which no run
         // here asks to stop.
@@ -430,11 +443,12 @@ private let installedAgent: Void = {
           .dataDirectory(for: "extension:caffeinate")
         try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
         let start = try #require(ProcessTree.startTime(of: getpid()))
-        try "\(getpid()) \(start) \(Int(Date().timeIntervalSince1970) + 8100)\n".write(
+        let until = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 8100 * 1_000_000_000
+        try "\(getpid()) \(start) \(until)\n".write(
           to: data.appending(path: "awake"), atomically: true, encoding: .utf8)
       }
       await model.extensions.reload()
-      model.navigator.input = name == "caffeinate-keyword" ? "caff 2" : "caff"
+      model.navigator.input = name == "caffeinate-keyword" || name == "caffeinate-started" ? "caff 2" : "caff"
       await model.navigator.settled()
       if name != "caffeinate-keyword" {
         try #require(model.activateReturn())
@@ -1343,12 +1357,16 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "caffeinate-keyword":
     #expect(
       model.navigator.command == nil && model.navigator.fieldSlots.map(\.name) == ["minutes", "seconds"])
-  case "caffeinate-off", "caffeinate-draft", "caffeinate-on":
+  case "caffeinate-off", "caffeinate-draft", "caffeinate-on", "caffeinate-started":
     let titles = model.navigator.results.map(\.row.title)
     #expect(model.navigator.command?.id == "extension:caffeinate")
     if state == "caffeinate-off" { #expect(titles == ["Keep Awake"]) }
     if state == "caffeinate-draft" { #expect(titles == ["Keep Awake for 2 h 30 min"]) }
     if state == "caffeinate-on" { #expect(titles.count == 2 && titles[0].hasPrefix("Awake until")) }
+    if state == "caffeinate-started" {
+      #expect(titles.count == 2 && titles[0].hasPrefix("Awake until") && titles[1] == "Turn Off")
+      #expect(model.navigator.selected?.row.actions.isEmpty == true && model.navigator.returnAction == nil)
+    }
   case "weather-keyword":
     #expect(model.navigator.command == nil && model.navigator.fieldSlots.isEmpty)
     #expect(model.navigator.input == "weather " && model.navigator.hasFieldNavigation)

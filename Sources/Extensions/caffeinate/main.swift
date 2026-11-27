@@ -8,7 +8,8 @@
 // request answers, so the timer outlives the request, the panel and Wicket itself, as a timer must.
 // `caffeinate` releases its assertions when it exits: at its timeout, or on SIGTERM from Turn Off or
 // from a new run replacing it. The data folder keeps its pid with its start time, so a reused pid is
-// never taken for it.
+// never taken for it. Submitted requests hold a lock there from reading the record to replacing it, so
+// overlapping ones (the panel and a headless run) never leave a keeper unrecorded.
 //
 // Hours are a text field, not a number: only a text field takes the keyword's argument (`caff 2`).
 // After editing, build it with `swiftc -O *.swift -o main`.
@@ -36,9 +37,10 @@ func draft(hours: String, minutes: String, seconds: String) -> Draft {
     else { return .invalid }
     total += value * unit
   }
-  // `caffeinate -t` takes a 32-bit count.
-  guard total.rounded() <= Double(Int32.max) else { return .invalid }
-  return .seconds(Int(total.rounded()))
+  // `caffeinate -t` takes a 32-bit count; a fraction of a second still asks for a timer, not forever.
+  let seconds = total > 0 ? max(1, total.rounded()) : 0
+  guard seconds <= Double(Int32.max) else { return .invalid }
+  return .seconds(Int(seconds))
 }
 
 /// `2 h 30 min`, `45 s`: the nonzero parts.
@@ -56,6 +58,24 @@ func clock(_ time: time_t, now: time_t) -> String {
     : date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
 }
 
+/// The request's time: the wall clock to show, and uptime, which `caffeinate -t` counts (its timeout is a
+/// `dispatch_time`, so it pauses while the Mac sleeps). Deadlines are kept in uptime and shown as local
+/// time from the request's own pair.
+struct Now {
+  var wall: time_t
+  /// CLOCK_UPTIME_RAW in nanoseconds, the clock `dispatch_time` uses.
+  var uptime: UInt64
+
+  static var current: Now { Now(wall: time(nil), uptime: clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) }
+
+  /// The uptime `seconds` from now.
+  func after(_ seconds: Int) -> UInt64 { uptime + UInt64(seconds) * 1_000_000_000 }
+  /// Whole seconds left until the uptime `deadline`, rounded to the nearest.
+  func left(_ deadline: UInt64) -> Int {
+    Int((deadline - min(deadline, uptime) + 500_000_000) / 1_000_000_000)
+  }
+}
+
 // MARK: - The keeper
 
 /// The command line that keeps the display (`-d`) and the system (`-i`) awake, for `seconds` or until stopped.
@@ -68,8 +88,8 @@ struct Awake: Equatable {
   let pid: pid_t
   /// Kernel start time in microseconds, which tells the keeper from a later process with its pid.
   let start: UInt64
-  /// When its timeout ends; nil while it runs until stopped.
-  let until: time_t?
+  /// When its timeout ends, in uptime nanoseconds; nil while it runs until stopped.
+  let until: UInt64?
 }
 
 func startTime(of pid: pid_t) -> UInt64? {
@@ -85,9 +105,14 @@ func running(in folder: String) -> Awake? {
   guard let text = try? String(contentsOfFile: folder + "/awake", encoding: .utf8) else { return nil }
   let words = text.split(separator: " ").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
   guard words.count == 3, let pid = pid_t(words[0]), let start = UInt64(words[1]),
-    let until = time_t(words[2]), startTime(of: pid) == start
+    let until = UInt64(words[2]), startTime(of: pid) == start
   else { return nil }
   return Awake(pid: pid, start: start, until: until > 0 ? until : nil)
+}
+
+/// Stops the keeper, unless its pid has gone to another process since it was read.
+func stop(_ awake: Awake) {
+  if startTime(of: awake.pid) == awake.start { kill(awake.pid, SIGTERM) }
 }
 
 func record(_ awake: Awake?, in folder: String) -> Bool {
@@ -138,26 +163,27 @@ func row(_ id: String, _ title: String, _ subtitle: String, icon: String, action
     + "\"icon\":\(quoted(icon)),\"actions\":[\(action.isEmpty ? "" : run)]}"
 }
 
-/// Whether the Mac is being kept awake, with Turn Off, which the footer names as Return.
-func status(_ awake: Awake, now: time_t) -> String {
+/// Whether the Mac is being kept awake, with Turn Off, which the footer names as Return. `action` is
+/// empty where Return on it should do nothing.
+func status(_ awake: Awake, now: Now, action: String = "stop") -> String {
   guard let until = awake.until else {
     return row(
-      "awake", "Awake until you turn it off", "No timer", icon: "cup.and.saucer.fill", action: "stop")
+      "awake", "Awake until you turn it off", "No timer", icon: "cup.and.saucer.fill", action: action)
   }
   // Whole minutes left, rounded up, and seconds only in the last minute.
-  let left = max(0, Int(until - now))
+  let left = now.left(until)
   let remaining = left < 60 ? span(max(left, 1)) : span((left + 59) / 60 * 60)
   return row(
-    "awake", "Awake until \(clock(until, now: now))", "\(remaining) left",
-    icon: "cup.and.saucer.fill", action: "stop")
+    "awake", "Awake until \(clock(now.wall + left, now: now.wall))", "\(remaining) left",
+    icon: "cup.and.saucer.fill", action: action)
 }
 
 /// What Return would start with the fields as they are.
-func start(_ draft: Draft, now: time_t) -> String {
+func start(_ draft: Draft, now: Now) -> String {
   switch draft {
   case .seconds(let seconds) where seconds > 0:
     return row(
-      "start", "Keep Awake for \(span(seconds))", "Until \(clock(now + seconds, now: now))",
+      "start", "Keep Awake for \(span(seconds))", "Until \(clock(now.wall + seconds, now: now.wall))",
       icon: "cup.and.saucer", action: "start")
   case .invalid:
     return row(
@@ -170,19 +196,24 @@ func start(_ draft: Draft, now: time_t) -> String {
 
 // MARK: - The request
 
-/// The answer to a request; a submitted Keep Awake or Turn Off acts first. `keeper` is the command line
-/// for a duration, so tests keep the Mac's sleep alone.
+/// The answer to a request; a submitted Keep Awake or Turn Off acts first. `launch` starts the keeper for
+/// a duration, so tests keep the Mac's sleep alone.
 func answer(
-  _ request: JSON?, folder: String, now: time_t = time(nil), keeper: (Int?) -> [String] = keepAwake
+  _ request: JSON?, folder: String, now: Now = .current,
+  launch: (Int?) -> pid_t? = { detach(keepAwake($0)) }
 ) -> String {
   let fields = request?["fields"]
   let typed = draft(
     hours: fields?["hours"]?.string ?? request?["input"]?.string ?? "",
     minutes: fields?["minutes"]?.string ?? "", seconds: fields?["seconds"]?.string ?? "")
   let action = request?["action"]?.string
-  var awake = running(in: folder)
   var rows: [String] = []
-  if case .bool(true)? = request?["submitted"] {
+  let submitted = if case .bool(true)? = request?["submitted"] { true } else { false }
+  let lock = submitted ? open(folder + "/lock", O_RDWR | O_CREAT | O_CLOEXEC, 0o600) : -1
+  defer { if lock >= 0 { close(lock) } }
+  if lock >= 0 { flock(lock, LOCK_EX) }
+  var awake = running(in: folder)
+  if submitted {
     // A row's Keep Awake, or the search bar submitted with a duration (`caff 2` at the root); entering
     // the command with nothing typed only shows the state.
     let startFor: Int?? =
@@ -192,31 +223,31 @@ func answer(
       default: nil
       }
     if let seconds = startFor {
-      let argv = keeper(seconds)
-      if let pid = detach(argv), let begun = startTime(of: pid) {
-        let started = Awake(pid: pid, start: begun, until: seconds.map { now + $0 })
+      if let pid = launch(seconds), let begun = startTime(of: pid) {
+        let started = Awake(pid: pid, start: begun, until: seconds.map(now.after))
         if record(started, in: folder) {
           // The new keeper took over before the old one goes, so the Mac never sleeps in between.
-          if let awake { kill(awake.pid, SIGTERM) }
-          return "{\"items\":[\(status(started, now: now))]}"
+          if let awake { stop(awake) }
+          // Return on the selected state does nothing: `caff 2` submits without a named action, so a
+          // second Return there would otherwise turn off what the first started.
+          let turnOff = row(
+            "stop", "Turn Off", "Let your Mac sleep as usual", icon: "moon.zzz", action: "stop")
+          return "{\"items\":[\(status(started, now: now, action: "")),\(turnOff)]}"
         }
         kill(pid, SIGTERM)
       }
-      rows.append(row("failed", "Could not keep your Mac awake", argv[0], icon: "exclamationmark.triangle"))
+      rows.append(
+        row("failed", "Could not keep your Mac awake", keepAwake(nil)[0], icon: "exclamationmark.triangle"))
     } else if action == "stop", let current = awake {
-      kill(current.pid, SIGTERM)
+      stop(current)
       _ = record(nil, in: folder)
       awake = nil
     }
   }
   let preview = start(typed, now: now)
-  // What was typed leads; with nothing typed, the state does.
+  // What was typed leads, even a zero or a typo; with nothing typed, the state does.
   if let awake {
-    if case .seconds(let seconds) = typed, seconds > 0 {
-      rows += [preview, status(awake, now: now)]
-    } else {
-      rows += [status(awake, now: now), preview]
-    }
+    rows += typed == .empty ? [status(awake, now: now), preview] : [preview, status(awake, now: now)]
   } else {
     rows.append(preview)
   }
