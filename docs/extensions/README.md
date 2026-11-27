@@ -12,7 +12,7 @@ Specs, shared decisions, and status for official extensions. Wicket-wide roadmap
 | Quicklinks | [quicklinks.md](quicklinks.md) | Shipped | Personal bookmarks and site searches with optional keywords and hotkeys. |
 | Windows | [window-manager.md](window-manager.md) | Phases 1–3 shipped | Stock moves, verified readback, Capture, and saved moves in Settings; multi-window layouts next. |
 | Caffeinate | [caffeinate.md](caffeinate.md) | Bundled | Keeps the Mac awake for a typed duration or until turned off. |
-| Calendar | [calendar.md](calendar.md) | Waiting on permission checks | Read-only 7-day EventKit agenda with Join and headless read. |
+| Calendar | [calendar.md](calendar.md) | Version 1 bundled; owner's permission checks pending | Read-only 7-day EventKit agenda with Join and headless read. |
 
 **Parked:** System ([system.md](system.md))—waiting on Automation and per-action permission design.
 **Tier 2 (not yet specified):** Snippets, Capture, Processes & Ports, Monitor. Clipboard stays in core because it polls the pasteboard continuously.
@@ -29,7 +29,7 @@ Specs, shared decisions, and status for official extensions. Wicket-wide roadmap
   - Extensions declare `permissions` and never prompt themselves or build helper apps.
   - Child processes inherit Wicket's Developer ID–signed grant, so updates never re-prompt (unlike ad-hoc helper apps whose cdhash changes on rebuild).
   - Onboarding ([ROADMAP step 4](../../ROADMAP.md#4-onboarding)) offers declared permissions up front; missing grants prompt in place on first use.
-  - Three real-Mac checks confirm "nobody asks twice" before Calendar builds on it: (1) Developer ID update across two releases, (2) agent-written working-folder extension, (3) headless read from inside the agent's sandbox.
+  - Three real-Mac checks confirm "nobody asks twice" before Calendar ships in a release: (1) Developer ID update across two releases, (2) agent-written working-folder extension, (3) headless read from inside the agent's sandbox.
 - **JavaScript by default for user extensions:** Wicket bundles [`wicket-js`](../wicket-js.md) so the agent can write extensions without Apple developer tools. Official extensions needing macOS APIs stay compiled Swift.
 
 ## Shared work
@@ -51,4 +51,4 @@ Fixed numbers referenced by the individual specs:
 ## Next, in order
 
 1. The catalog ([ROADMAP step 3](../../ROADMAP.md#3-extension-catalog)).
-2. Calendar, once the owner runs the three permission checks on a real Mac.
+2. Calendar's Phase 0 permission checks on a real Mac, then native meeting links (shared work 8).

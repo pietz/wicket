@@ -44,6 +44,8 @@ Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnly
 
 **Weather** shows current conditions and today's high and low when you type `weather Berlin`. Press Return for the full forecast.
 
+**Calendar** shows the next seven days from the calendars on this Mac (Calendar.app accounts), starting with the next meeting or the call that is on now. Type `calendar` or bind a hotkey. When a Google Meet, Zoom, Teams, or Webex call is on or starts within ten minutes, Return joins it, so the hotkey and Return get you into the meeting. Type to search titles, places, and calendars; Return on an event shows its time, calendar, place, links, and invitation notes. The first use asks for Calendar access. Hide calendars or all-day events in Settings ▸ Extensions ▸ Calendar, or ask the agent, which can also read your agenda.
+
 **Quicklinks** opens your bookmarks and site searches. Add them in Settings ▸ Extensions ▸ Quicklinks or ask the agent. Type `links` to browse, or a saved keyword with a query, such as `yt cats` after adding YouTube. Website icons appear after you first open their links. Sites without a cached icon show a globe. See the [Quicklinks recipe](Sources/WicketApp/Resources/extension-contract.md#quicklinks) for examples and hotkeys.
 
 **Windows** moves the focused window with Left Half, Right Half, Maximize, Center (keeping its size), Next Display, or Restore. Type a move name or `window`. Wicket closes for the move and reports failures or partial moves, which Restore can undo. If Accessibility is missing, choose **Allow Accessibility for Wicket**.
