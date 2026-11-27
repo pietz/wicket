@@ -377,6 +377,9 @@ func calculatorStatusesHaveNoCopyAction(input: String, title: String) async thro
   ("-3 C in F", "26.6 °F"), (" 1000000 mm in km ", "1 km"), ("123456789 km in mm", "123456789000000 mm"),
   ("10 KM TO MI", "6.21 mi"), ("+1,500.50km to m", "1500500 m"),
   ("1 km/h to mph", "0.62 mph"), ("−10 °C to °F", "14 °F"), (".5km to m", "500 m"),
+  ("5 km in miles", "3.11 miles"), ("5km to Miles", "3.11 miles"), ("2 kilometres in feet", "6561.68 feet"),
+  ("1 foot to inches", "12 inches"), ("10 pounds in kg", "4.54 kg"), ("3 lbs to grams", "1360.78 grams"),
+  ("20 celsius in fahrenheit", "68 °F"), ("1 gallon in liters", "3.79 liters"),
 ])
 func unitsConvert(input: String, expected: String) async throws {
   let view = try await runBundled("units", request: ProviderRequest(input: input, locale: us))

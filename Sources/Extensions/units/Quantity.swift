@@ -11,6 +11,25 @@ let units: [String: (dimension: String, size: Double)] = [
   "c": ("temperature", 0), "f": ("temperature", 0), "k": ("temperature", 0),
 ]
 let temperatures = ["c": "°C", "f": "°F", "k": "K"]
+/// Spelled-out names people type, singular and plural, mapped to the symbols above.
+let unitAliases: [String: String] = {
+  var aliases = ["°c": "c", "°f": "f", "km/h": "kmh", "lbs": "lb", "kph": "kmh", "kilo": "kg", "kilos": "kg"]
+  let names = [
+    "millimeter": "mm", "millimetre": "mm", "centimeter": "cm", "centimetre": "cm", "meter": "m",
+    "metre": "m", "kilometer": "km", "kilometre": "km", "inch": "in", "yard": "yd", "mile": "mi",
+    "gram": "g", "kilogram": "kg", "ounce": "oz", "pound": "lb", "milliliter": "ml", "millilitre": "ml",
+    "liter": "l", "litre": "l", "gallon": "gal",
+  ]
+  for (name, symbol) in names {
+    aliases[name] = symbol
+    aliases[name + "s"] = symbol
+  }
+  aliases["inches"] = "in"
+  aliases["foot"] = "ft"
+  aliases["feet"] = "ft"
+  for name in ["celsius": "c", "fahrenheit": "f", "kelvin": "k"] { aliases[name.key] = name.value }
+  return aliases
+}()
 
 func kelvin(_ value: Double, from unit: String) -> Double {
   unit == "c" ? value + 273.15 : unit == "f" ? (value - 32) * 5 / 9 + 273.15 : value
@@ -145,12 +164,11 @@ struct Quantity {
     source.count == 3 || source.count == 1 && source.first.map(isCurrencySymbol) == true
   }
 
-  /// The target spelling is kept for km/h. Temperature aliases share the existing formulas.
+  /// The target spelling is kept, as typed, except temperatures, which show their symbol.
   var unitResult: (Double, String)? {
     guard let target else { return nil }
-    let aliases = ["°c": "c", "°f": "f", "km/h": "kmh"]
-    let fromUnit = aliases[source] ?? source
-    let toUnit = aliases[target] ?? target
+    let fromUnit = unitAliases[source] ?? source
+    let toUnit = unitAliases[target] ?? target
     guard let from = units[fromUnit], let to = units[toUnit], from.dimension == to.dimension else {
       return nil
     }
