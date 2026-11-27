@@ -196,6 +196,19 @@ func durationsComeFromHoursMinutesAndSeconds(hours: String, minutes: String, exp
   #expect(shown.map(\.title) == ["Keep Awake"] && startTime(of: other) == start)
 }
 
+@Test func withoutTheLockNothingStarts() throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let lock = folder.appending(path: "lock")
+  FileManager.default.createFile(atPath: lock.path, contents: nil, attributes: [.posixPermissions: 0o400])
+  let shown = try rows(
+    answer(request(hours: "1", submitted: true), folder: folder.path) { _ in
+      Issue.record("Started a keeper without the lock")
+      return nil
+    })
+  #expect(shown.map(\.title) == ["Could not keep your Mac awake"])
+}
+
 /// What a submitted `caff 2` answers, recorded for the panel capture with a stand-in keeper that is
 /// stopped again.
 func recordedCaffeinateConfirmation() throws -> String {

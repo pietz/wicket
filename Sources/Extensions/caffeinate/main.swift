@@ -211,7 +211,11 @@ func answer(
   let submitted = if case .bool(true)? = request?["submitted"] { true } else { false }
   let lock = submitted ? open(folder + "/lock", O_RDWR | O_CREAT | O_CLOEXEC, 0o600) : -1
   defer { if lock >= 0 { close(lock) } }
-  if lock >= 0 { flock(lock, LOCK_EX) }
+  // Without the lock two requests could each replace the record and leave a keeper nobody can stop.
+  if submitted, lock < 0 || flock(lock, LOCK_EX) != 0 {
+    return
+      "{\"items\":[\(row("failed", "Could not keep your Mac awake", "Its state file is not writable", icon: "exclamationmark.triangle"))]}"
+  }
   var awake = running(in: folder)
   if submitted {
     // A row's Keep Awake, or the search bar submitted with a duration (`caff 2` at the root); entering
