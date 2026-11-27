@@ -31,14 +31,29 @@
   --chart-radius: 4px;
   --chart-stroke: 2px;
   --chart-grid: var(--line);
-  --chart-1: var(--accent);
-  --chart-2: light-dark(oklch(0.56 0.115 162), oklch(0.76 0.13 162));
-  --chart-3: light-dark(oklch(0.58 0.145 310), oklch(0.76 0.13 310));
-  --chart-4: light-dark(oklch(0.61 0.145 52), oklch(0.79 0.13 65));
-  --chart-5: light-dark(oklch(0.57 0.14 15), oklch(0.76 0.13 15));
+  --chart-1: var(--native-chart-accent, var(--accent));
+  --chart-2: -apple-system-green;
+  --chart-3: -apple-system-purple;
+  --chart-4: -apple-system-orange;
+  --chart-5: -apple-system-pink;
   font: var(--body)/1.45 system-ui, -apple-system, sans-serif;
   color: var(--ink);
   background: transparent;
+}
+/* AppleAccentColor indices: skip green (3), purple (5), orange (1) or pink (6).
+   Red (0) also skips pink because the hues are close. Blue supplies the last slot. */
+:root[data-accent="3"] {
+  --chart-2: -apple-system-purple;
+  --chart-3: -apple-system-orange;
+  --chart-4: -apple-system-pink;
+}
+:root[data-accent="5"] {
+  --chart-3: -apple-system-orange;
+  --chart-4: -apple-system-pink;
+}
+:root[data-accent="1"] { --chart-4: -apple-system-pink; }
+:root:is([data-accent="0"], [data-accent="1"], [data-accent="3"], [data-accent="5"], [data-accent="6"]) {
+  --chart-5: -apple-system-blue;
 }
 @media (prefers-color-scheme: dark) {
   :root { --tint: 14%; }

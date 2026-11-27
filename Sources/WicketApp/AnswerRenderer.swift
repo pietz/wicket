@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import WebKit
@@ -99,6 +100,7 @@ final class AnswerRenderer {
   private var renderedStreaming = false
   private var cssRevision = 0
   private var appliedCSS = -1
+  private var accent = UserDefaults.standard.string(forKey: "AppleAccentColor") ?? ""
   private var appliedIcons = ""
   /// Where each page was scrolled when another replaced it, so going back to it returns there.
   private var positions: [String: Double] = [:]
@@ -130,6 +132,11 @@ final class AnswerRenderer {
       contentsOf: Bundle.wicket.url(forResource: "answers", withExtension: "css")!, encoding: .utf8)
     let own = (try? String(contentsOf: folder.appending(path: "theme.css"), encoding: .utf8)) ?? ""
     return "@layer wicket {\n\(base)\n}\n\(own)"
+  }
+  // WebKit can pin AccentColor to blue to avoid exposing system preferences to websites.
+  private static func chartAccent(dark: Bool) -> String {
+    guard let color = NSColor.accentSRGB(dark: dark) else { return "AccentColor" }
+    return "color(srgb \(color.redComponent) \(color.greenComponent) \(color.blueComponent))"
   }
   /// Images are allowed only as `data:` URLs, which only the host writes: the target icons. Markdown
   /// images and raw HTML never reach the page.
@@ -248,9 +255,20 @@ final class AnswerRenderer {
             // A page row is as tall as a native one, which does not grow in proportion to the text.
             let css =
               try Self.stylesheet(in: folder)
-              + "\n:root { zoom: \(textSize.scale); --zoom: \(textSize.scale); --row: \(textSize.rowHeight / textSize.scale)px; }"
+                + """
+
+                :root {
+                  zoom: \(textSize.scale);
+                  --zoom: \(textSize.scale);
+                  --row: \(textSize.rowHeight / textSize.scale)px;
+                  --native-chart-accent: light-dark(\(Self.chartAccent(dark: false)), \(Self.chartAccent(dark: true)));
+                }
+                """
             _ = try await page.callJavaScript(
-              "document.querySelector('#theme').textContent = css;", arguments: ["css": css],
+              """
+              document.documentElement.dataset.accent = accent;
+              document.querySelector('#theme').textContent = css;
+              """, arguments: ["accent": accent, "css": css],
               contentWorld: .defaultClient)
             appliedCSS = cssVersion
           }
@@ -311,6 +329,11 @@ final class AnswerRenderer {
   }
   func opened() {
     releaseTask?.cancel()
+    let currentAccent = UserDefaults.standard.string(forKey: "AppleAccentColor") ?? ""
+    if currentAccent != accent {
+      accent = currentAccent
+      cssRevision += 1
+    }
     prepare()
   }
   func closed() {

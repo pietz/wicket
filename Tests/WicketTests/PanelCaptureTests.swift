@@ -1287,6 +1287,8 @@ func scenariosSetUpTheirState(_ state: String) async throws {
 //
 //   WICKET_REPLIES=replies.json WICKET_CAPTURE_DIR=/tmp/look swift test --filter replyCapture
 //
+// Set WICKET_CAPTURE_ACCENT=3 to preview green via a process-local AppleAccentColor override.
+//
 // `Fixtures/capture-replies.json` is the set compared across refactors: a long reply at each text size,
 // targets, a nested detail and the action panel, each with Escape back.
 
@@ -1300,6 +1302,12 @@ private let replies: [[String]] =
   .enabled(if: captureDirectory != nil && !replies.isEmpty, "Set WICKET_REPLIES and WICKET_CAPTURE_DIR"),
   arguments: replies.indices)
 func replyCapture(_ index: Int) async throws {
+  if let accent = ProcessInfo.processInfo.environment["WICKET_CAPTURE_ACCENT"] {
+    let defaults = UserDefaults.standard
+    var arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+    arguments["AppleAccentColor"] = accent
+    defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+  }
   let directory = URL(fileURLWithPath: try #require(captureDirectory))
   try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
   let entry = replies[index]

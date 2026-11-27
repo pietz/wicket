@@ -1,6 +1,16 @@
 import AppKit
 import SwiftUI
 
+extension NSColor {
+  @MainActor static func accentSRGB(dark: Bool) -> NSColor? {
+    var color: NSColor?
+    NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
+      color = controlAccentColor.usingColorSpace(.sRGB)
+    }
+    return color
+  }
+}
+
 private struct RGB: Equatable {
   var r, g, b: Double
   static let white = RGB(r: 255, g: 255, b: 255)
@@ -21,13 +31,8 @@ private struct RGB: Equatable {
 
   /// The system accent colour as macOS draws it in that appearance.
   @MainActor static func accent(dark: Bool) -> RGB {
-    var rgb = RGB(r: 0, g: 122, b: 255)
-    NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
-      if let c = NSColor.controlAccentColor.usingColorSpace(.sRGB) {
-        rgb = RGB(r: c.redComponent * 255, g: c.greenComponent * 255, b: c.blueComponent * 255)
-      }
-    }
-    return rgb
+    guard let c = NSColor.accentSRGB(dark: dark) else { return RGB(r: 0, g: 122, b: 255) }
+    return RGB(r: c.redComponent * 255, g: c.greenComponent * 255, b: c.blueComponent * 255)
   }
 }
 
