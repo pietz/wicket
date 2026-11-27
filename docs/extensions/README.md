@@ -19,11 +19,11 @@ Specs, shared decisions, and status for official extensions. Wicket-wide roadmap
 
 ## Decisions every spec follows
 
-- **User data & settings:** Personal lists and scalar settings live in `config.json`. API keys live in Keychain. See the [extension contract](../../Sources/WicketApp/Resources/extension-contract.md).
-- **Local customizations:** A valid local manifest overrides the built-in of the same ID. Settings and `--diagnose` surface active overrides so users can recover current built-in features and ask the agent to carry their custom changes forward.
+- **User data & settings:** Follow the contract’s compatibility rules for saved data and program state. API keys live in Keychain. [Extension contract](../../Sources/WicketApp/Resources/extension-contract.md#contract-evolution)
+- **Built-in versions:** Bump `version` in `wicket.json` whenever the extension changes, including changes in a shared source it ships. Keep the version when copying a built-in so it records the base for merging. [Changing a built-in](../../Sources/WicketApp/Resources/extension-contract.md#changing-a-built-in)
 - **Existing mechanisms first:** Prefer static items, `run` (`hidden:true` where appropriate), fields, and pages. Add a core mechanism only when two real users need it.
 - **Inline answers and hotkeys.** Give an extension a keyword and command page when the page adds to the inline answer. Offer hotkeys for openable commands and items with a distinct action.
-- **Contract changes:** Follow the [contract evolution policy](../../Sources/WicketApp/Resources/extension-contract.md#contract-evolution) when proposing a change to the extension interface.
+- **Compatibility:** Follow the contract’s evolution rules for permanent names, widening accepted values, and keeping existing list entries visible. [Contract evolution policy](../../Sources/WicketApp/Resources/extension-contract.md#contract-evolution)
 - **Native frame, HTML pages; enabled means trusted:** Follow [AGENTS.md](../../AGENTS.md). A confirmation step for new extensions was considered and left out; it stays an option if real use shows a need.
 - **Permissions: Wicket holds them, extensions declare them, nobody asks twice:**
   - Extensions declare `permissions` and never prompt themselves or build helper apps.

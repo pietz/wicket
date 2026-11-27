@@ -502,11 +502,11 @@ struct SettingsPane: View {
         Label(title(id), systemImage: icon ?? "puzzlepiece.extension")
       }
       Spacer()
-      if extensions.locations[id]?.shadowsBuiltIn == true {
+      if let summary = extensions.locations[id]?.copySummary {
         Image(systemName: "square.on.square")
           .font(.caption2).foregroundStyle(.secondary)
-          .help("A local copy replaces the built-in version")
-          .accessibilityLabel("Local copy replaces the built-in version")
+          .help(summary)
+          .accessibilityLabel(summary)
       }
       Toggle(
         title(id),
@@ -523,16 +523,18 @@ struct SettingsPane: View {
     let directory = self.directory
     let resolutions = extensions.scanned ? directory.hotkeyResolutions() : [:]
     let command = extensions.commands[id]
-    let shadowsBuiltIn = extensions.locations[id]?.shadowsBuiltIn == true
-    if shadowsBuiltIn {
+    let location = extensions.locations[id]
+    if let location, let summary = location.copySummary {
       Section {
-        Label("A local copy replaces the built-in version", systemImage: "square.on.square")
+        Label(summary, systemImage: "square.on.square")
           .font(.callout)
         HStack {
-          trashButton(id, label: "Use Built-in")
-          Button("Ask Agent to Merge") { askAgentToMerge(id) }
-            .disabled(!canOpenMergeConversation())
-            .help(canOpenMergeConversation() ? "Draft a merge request" : "Wait for the current agent turn")
+          trashButton(id, label: location.source == .local ? "Use Built-in" : "Move to Trash…")
+          if location.canMerge {
+            Button("Ask Agent to Merge") { askAgentToMerge(id) }
+              .disabled(!canOpenMergeConversation())
+              .help(canOpenMergeConversation() ? "Draft a merge request" : "Wait for the current agent turn")
+          }
           Button("Show in Finder") { showExtensionInFinder(id) }
         }
       }
@@ -599,7 +601,7 @@ struct SettingsPane: View {
         }
       }
     }
-    if !shadowsBuiltIn, extensions.ownFolder(id) != nil {
+    if location?.copyStatus == nil, location?.localFolder != nil {
       Section {
         HStack {
           Button("Show in Finder") { showExtensionInFinder(id) }
@@ -615,17 +617,34 @@ struct SettingsPane: View {
   }
 
   func askAgentToMerge(_ id: String) {
-    guard canOpenMergeConversation(), let location = extensions.locations[id], location.shadowsBuiltIn,
-      let local = location.localFolder, let builtIn = location.bundledFolder
+    guard canOpenMergeConversation(), let location = extensions.locations[id], location.canMerge,
+      let local = location.localFolder, let builtIn = location.bundledFolder,
+      let bundledContract = location.bundledContract
     else { return }
+    let name = builtIn.lastPathComponent
+    let localContract = location.localContract.map(String.init) ?? "unknown"
+    let strategy: String
+    if let base = location.baseVersion?.rawValue {
+      let sources = "https://github.com/pietz/wicket/tree/\(name)/v\(base)/Sources/Extensions/\(name)"
+      strategy = """
+        My copy is based on version \(base). Find the base sources at \(sources). Diff the base against my \
+        copy and apply those changes onto the current built-in. If that version is untagged or the base \
+        sources cannot be found, do a two-way merge between my copy and the current built-in.
+        """
+    } else {
+      strategy =
+        "My copy’s base version is unknown. Do a two-way merge between my copy and the current built-in."
+    }
+    let version = location.builtInVersion.map { "Set `version` in `wicket.json` to \($0.rawValue). " } ?? ""
     recorder.stop()
     openMergeConversation(
       """
-      Please bring my changes from the local Wicket extension at \(local.path.debugDescription) onto the \
-      current built-in version at \(builtIn.path.debugDescription). Read the extension contract and compare \
-      both versions first. Keep my customizations, the built-in's current features, and my saved settings \
-      and hotkeys. Write the merged extension to the local folder, leave the built-in untouched, and verify \
-      the result.
+      Please merge my local Wicket extension at \(local.path.debugDescription) (contract \(localContract)) \
+      onto the current built-in version at \(builtIn.path.debugDescription) (contract \(bundledContract)). \
+      Read the extension contract first. \(strategy) Keep my customizations, the built-in’s current \
+      features, and my saved settings and hotkeys. Write \
+      the merge to my local folder and keep the bundled folder intact. \(version)Rebuild and verify the \
+      local extension with Wicket’s `--extension \(name)`.
       """)
   }
   private func completeListRoute(

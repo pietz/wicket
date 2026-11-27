@@ -154,16 +154,47 @@ final class ExtensionHost {
 
   enum Source: String, Encodable, Sendable {
     case bundled, local
-    case localOverride = "local overriding bundled"
     case retired = "retired local copy ignored"
     case brokenFallback = "broken local copy, using bundled"
+  }
+  enum CopyStatus: String, Encodable, Sendable {
+    case sameAsBuiltIn, behind, unknownBase, newer, changed
   }
   struct Location: Equatable, Sendable {
     var source: Source
     let localFolder: URL?
     let bundledFolder: URL?
-    var shadowsBuiltIn: Bool { source == .localOverride }
+    var baseVersion: ExtensionManifest.Version? = nil
+    var builtInVersion: ExtensionManifest.Version? = nil
+    var localContract: Int? = nil
+    var bundledContract: Int? = nil
     var localCopy: LocalCopy? { localFolder.map { LocalCopy(folder: $0, retired: source == .retired) } }
+
+    var copyStatus: CopyStatus? {
+      guard localFolder != nil, bundledFolder != nil else { return nil }
+      if source == .bundled { return .sameAsBuiltIn }
+      guard let baseVersion else { return .unknownBase }
+      if let builtInVersion {
+        if baseVersion.precedes(builtInVersion) { return .behind }
+        if builtInVersion.precedes(baseVersion) { return .newer }
+      }
+      return .changed
+    }
+
+    var copySummary: String? {
+      switch (copyStatus, baseVersion?.rawValue, builtInVersion?.rawValue) {
+      case (.sameAsBuiltIn, _, _): "Same as built-in"
+      case (.behind, let base?, let builtIn?): "Based on \(base) · Built-in is \(builtIn)"
+      case (.unknownBase, _, _): "Based on an earlier version"
+      case (.newer, _, _): "Newer than built-in · update Wicket"
+      case (.changed, let base?, _): "Based on \(base) · Changed"
+      default: nil
+      }
+    }
+
+    var canMerge: Bool {
+      localFolder != nil && bundledContract != nil && (source == .local || source == .brokenFallback)
+    }
   }
 
   private(set) var commands: [String: ExtensionCommand] = [:]
@@ -175,7 +206,7 @@ final class ExtensionHost {
   var onCatalogChange: ((Set<String>) -> Void)?
   let folder: URL
   /// The extensions that ship inside Wicket, each a folder with its binary and source.
-  /// A valid local manifest with the same folder name wins.
+  /// A valid local copy with the same folder name wins if its files or version differ.
   let bundled: URL?
   /// Beside the running executable's resources: `Contents/Resources/Extensions` in the app.
   nonisolated static let bundledFolder = Bundle.main.resourceURL?.appending(path: "Extensions")
@@ -220,7 +251,7 @@ final class ExtensionHost {
     ExtensionCommand(
       id: command.id, folder: command.folder, manifest: command.manifest,
       saved: settings[command.folder.lastPathComponent],
-      quicklinksData: isBundledQuicklinks(command) ? runner.dataDirectory(for: command.id) : nil)
+      quicklinksData: command.id == Self.quicklinksID ? runner.dataDirectory(for: command.id) : nil)
   }
 
   private func install(_ commands: [String: ExtensionCommand]) -> Set<String> {
@@ -277,15 +308,10 @@ final class ExtensionHost {
       folder: command.folder, data: runner.dataDirectory(for: command.id), manifest: command.manifest.icon)
   }
 
-  private func isBundledQuicklinks(_ command: ExtensionCommand) -> Bool {
-    command.id == Self.quicklinksID && command.folder == locations[command.id]?.bundledFolder
-  }
-
   /// Bookmarks keep their native open action. The submitted cache request runs only if it succeeds.
   func cacheBookmarkIcon(_ url: URL, from result: Result?) {
     guard result?.provider == Self.quicklinksID, result?.row.entryList == "links",
-      let command = commands[Self.quicklinksID], isBundledQuicklinks(command),
-      let site = QuicklinkSite(url)
+      let command = commands[Self.quicklinksID], let site = QuicklinkSite(url)
     else { return }
     Task {
       let file = site.favicon(in: runner.dataDirectory(for: command.id))
@@ -405,7 +431,7 @@ final class ExtensionHost {
     paths.insert(directory.path)
     return paths
   }
-  /// Try the local manifest first.
+  /// Run a valid local manifest unless it matches the bundled version and files.
   nonisolated static func discover(_ root: URL, bundled: URL?) -> (
     [String: ExtensionCommand], [String: Problem], [String: Location]
   ) {
@@ -422,50 +448,75 @@ final class ExtensionHost {
       return lstat(url.path, &info) == 0
     }
     func hasManifest(_ folder: URL) -> Bool { hasEntry(folder.appending(path: "wicket.json")) }
-    func readManifest(_ folder: URL) throws -> ExtensionManifest {
-      try JSONDecoder().decode(
-        ExtensionManifest.self, from: Data(contentsOf: folder.appending(path: "wicket.json")))
+    func manifestData(_ folder: URL) throws -> Data {
+      try Data(contentsOf: folder.appending(path: "wicket.json"))
     }
     let builtIns = Dictionary(
       entries(bundled).filter(hasManifest).map { ($0.lastPathComponent, $0) },
       uniquingKeysWith: { _, last in last })
     let locals = Dictionary(
       entries(root).map { ($0.lastPathComponent, $0) }, uniquingKeysWith: { _, last in last })
+    let decoder = JSONDecoder()
     for name in Set(builtIns.keys).union(locals.keys) {
-      let local = locals[name]
-      let override = local.flatMap { hasManifest($0) ? $0 : nil }
-      guard var folder = override ?? builtIns[name] else { continue }
+      let local = locals[name].flatMap { hasManifest($0) ? $0 : nil }
+      let builtIn = builtIns[name]
+      guard var folder = local ?? builtIn else { continue }
       let id = "extension:" + name
-      locations[id] = .init(
-        source: override == nil ? .bundled : .local, localFolder: override, bundledFolder: builtIns[name])
+      var location = Location(
+        source: local == nil ? .bundled : .local, localFolder: local, bundledFolder: builtIn)
+      defer { locations[id] = location }
       // Addresses name these host targets, so a folder of that name could never be reached.
       if Address.reserved.contains(name.lowercased()) {
         problems[id] = Problem(manifest: "\(folder.path)\n\(name) is a reserved name. Rename the folder.")
         continue
       }
+      let data = Swift.Result { try manifestData(folder) }
+      let read = data.flatMap { data in
+        Swift.Result { try decoder.decode(ExtensionManifest.self, from: data) }
+      }
+      let fallback: ExtensionManifest? = builtIn.flatMap { builtIn in
+        local == nil ? nil : try? decoder.decode(ExtensionManifest.self, from: manifestData(builtIn))
+      }
+      location.builtInVersion = fallback?.version
+      location.bundledContract = fallback?.contract
       let manifest: ExtensionManifest
-      do {
-        manifest = try readManifest(folder)
-        if override != nil && builtIns[name] != nil { locations[id]?.source = .localOverride }
-      } catch {
+      switch read {
+      case .success(let active):
+        if local != nil {
+          location.baseVersion = active.version
+          location.localContract = active.contract
+        } else {
+          location.builtInVersion = active.version
+          location.bundledContract = active.contract
+        }
+        if let local, let builtIn, let fallback, let version = active.version, version == fallback.version,
+          matchesBuiltIn(local, builtIn: builtIn)
+        {
+          location.source = .bundled
+          folder = builtIn
+          manifest = fallback
+        } else {
+          manifest = active
+        }
+      case .failure(let error):
         let reason = error is ExtensionManifest.ContractError ? "\(error)" : "Invalid wicket.json: \(error)"
         let detail = "\(folder.path)\n\(reason)"
-        guard let override, let builtIn = builtIns[name], let fallback = try? readManifest(builtIn) else {
-          let manifest = try? Data(contentsOf: folder.appending(path: "wicket.json"))
-          struct Header: Decodable {
-            let name: String?
-            let contract: Int?
-          }
-          let header = manifest.flatMap { try? JSONDecoder().decode(Header.self, from: $0) }
-          problems[id] = Problem(
-            manifest: detail, name: header?.name, contract: header.map { $0.contract ?? 1 })
+        let header = (try? data.get()).flatMap {
+          try? decoder.decode(ExtensionManifest.Header.self, from: $0)
+        }
+        if local != nil {
+          location.baseVersion = header?.version
+          location.localContract = header?.contract
+        }
+        guard let local, let builtIn, let fallback else {
+          problems[id] = Problem(manifest: detail, name: header?.name, contract: header?.contract)
           continue
         }
-        if retiredFiles(in: override) != nil {
-          locations[id]?.source = .retired
+        if retiredFiles(in: local) != nil {
+          location.source = .retired
         } else {
           problems[id] = Problem(manifest: detail, usingBundled: true)
-          locations[id]?.source = .brokenFallback
+          location.source = .brokenFallback
         }
         folder = builtIn
         manifest = fallback
@@ -503,7 +554,7 @@ final class ExtensionHost {
     running[id] = task
     defer {
       running[id] = nil
-      if isBundledQuicklinks(command), request.submitted,
+      if command.id == Self.quicklinksID, request.submitted,
         request.action == "open-link" || request.action == "cache-icon"
       {
         iconRevision += 1
@@ -624,7 +675,20 @@ final class ExtensionHost {
     }
   }
 
-  /// Only consult these fingerprints after a local manifest fails to load. Match the shipped sources
+  nonisolated private static func matchesBuiltIn(_ local: URL, builtIn: URL) -> Bool {
+    let files = FileManager.default
+    let ignored: Set = ["main", ".DS_Store"]
+    guard let localNames = try? files.contentsOfDirectory(atPath: local.path),
+      let bundledNames = try? files.contentsOfDirectory(atPath: builtIn.path),
+      Set(localNames).subtracting(ignored) == Set(bundledNames).subtracting(ignored)
+    else { return false }
+    return bundledNames.filter { !ignored.contains($0) }.allSatisfy { name in
+      files.contentsEqual(
+        atPath: local.appending(path: name).path, andPath: builtIn.appending(path: name).path)
+    }
+  }
+
+  /// Keep these for unversioned contract-1 copies. Match the shipped sources
   /// because the executable varies with architecture and signing. Personal items are independent.
   nonisolated private static let releasedCopies: [String: Set<String>] = [
     "units": [

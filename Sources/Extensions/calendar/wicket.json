@@ -1,5 +1,6 @@
 {
   "contract": 2,
+  "version": "1.0.0",
   "name": "Calendar",
   "description": "Your next seven days from the calendars on this Mac, with Join for the next call.",
   "keyword": "calendar",

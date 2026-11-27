@@ -28,6 +28,8 @@ Wicket ships as a notarized DMG on GitHub Releases, updates via Sparkle, and ins
 
 ## Cutting a release
 
+Fetch tags with `git fetch --tags` so the script has the published extension tags.
+
 Run `Scripts/check.sh` on a clean working tree (`release.sh` refuses tracked or untracked changes). Signing and notarization require an unlocked macOS login session and login keychain—do not start a release while the session is locked or from an unattended run; unlock and retry if Keychain access stalls. If the Sparkle key was imported (`-f`) rather than generated locally, the first `sign_update` prompts in the UI—click **Always Allow** once, or the release stops after notarization. To sign without the keychain (e.g. headless Mac), export to a private file outside the checkout, run `SPARKLE_KEY_FILE=<file> Scripts/release.sh <version> <notes.md>` (uses `sign_update --ed-key-file`), and delete the file afterward. `WICKET_SIGN_IDENTITY` overrides the identity for `build-app.sh`; `release.sh` always signs the DMG with the team's Developer ID.
 
 ```sh
@@ -43,7 +45,7 @@ The script:
 4. Notarizes (`notarytool` profile `wicket-notary`), staples, and assesses with `spctl`.
 5. Signs for Sparkle (`wicket` key) and prepends the item to `appcast.xml`, with the notes as its Markdown `<description>` (what Sparkle's update window shows).
 6. Updates version and SHA-256 in `Casks/wicket.rb`.
-7. Prints the publish commands: commit, tag, push tag, `gh release create` with DMG and the same notes, push `main` (last, so the appcast goes live after the DMG), and copy/push the cask to `../homebrew-wicket`.
+7. Prints commands to commit, tag and push the app version, then tag and push each newly released built-in version as `<id>/v<version>` (for example `units/v1.0.0`). Extension tags give the agent the source for that merge base. The remaining commands create the GitHub release with the DMG and notes, push `main` so the appcast goes live after the DMG, and publish the cask from `../homebrew-wicket`.
 
 If notarization fails, `appcast.xml` and `Casks/wicket.rb` stay untouched; revert `Resources/Info.plist` with `git checkout Resources/Info.plist`. Sparkle shows the notes embedded in `appcast.xml`; editing the GitHub release later does not change them.
 

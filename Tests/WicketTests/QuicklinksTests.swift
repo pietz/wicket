@@ -92,6 +92,11 @@ func writeQuicklinks(in root: URL) throws {
   try FileManager.default.createDirectory(
     at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
   try FileManager.default.copyItem(at: bundledExtensions.appending(path: "links-search"), to: folder)
+  let manifestURL = folder.appending(path: "wicket.json")
+  var manifest = try #require(
+    JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any])
+  manifest["description"] = "Opens test links."
+  try JSONSerialization.data(withJSONObject: manifest).write(to: manifestURL)
   let binary = folder.appending(path: "main")
   try FileManager.default.removeItem(at: binary)
   let favicon =
@@ -401,8 +406,7 @@ private func fields(_ values: [String: String]) throws -> String {
 @MainActor @Test func quicklinksCacheFaviconsOnlyAfterOpeningAndShareThemBySite() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
-  let bundle = root.appending(path: "bundle")
-  let folder = try await installLinkProbe(in: bundle, fetchFavicons: true)
+  let folder = try await installLinkProbe(in: root, fetchFavicons: true)
   let opened = folder.appending(path: "opened")
   let mode = root.appending(path: "mode")
   let requests = root.appending(path: "requests")
@@ -411,7 +415,7 @@ private func fields(_ values: [String: String]) throws -> String {
   let (server, base) = try await serveHTTPFixture(in: root, source: faviconServer)
   defer { server.terminate() }
 
-  let model = LauncherModel.testing(in: root, bundled: folder.deletingLastPathComponent())
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
   let navigator = model.navigator
   let surface = RecordingSurface()
   navigator.surface = surface
@@ -430,6 +434,7 @@ private func fields(_ values: [String: String]) throws -> String {
   }
   await model.extensions.reload()
   let command = try #require(model.extensions.commands[links])
+  #expect(Edition.sameFolder(command.folder, folder))
   let scope = model.extensions.iconScope(for: command)
   let revision = model.extensions.iconRevision
   let site = try #require(URL(string: base).flatMap(QuicklinkSite.init))
@@ -536,7 +541,7 @@ private let faviconServer = """
           self.end_headers()
 
       def do_GET(self):
-          opened = any(Path(".").glob("bundle/extensions/links-search/opened"))
+          opened = Path("extensions/links-search/opened").is_file()
           with open("requests", "a") as log:
               print(self.path + (" opened" if opened else ""), file=log)
           mode = Path("mode").read_text()

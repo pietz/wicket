@@ -5,6 +5,7 @@
   "command": ["./main"],
   "match": "^>",
   "contract": 2,
+  "version": "1.0.0",
   "settings": [
     {
       "name": "terminal",

@@ -10,6 +10,10 @@ Changes within a contract version are additive and backward compatible with exte
 
 A breaking change bumps `contract` and replaces the old program runtime in the same release. Incompatible programs get a repair row, as they did moving from contract 1 to 2. Each bump ships a short **Migrating from contract N−1** checklist here for agents repairing extensions.
 
+When evolving an extension, the folder name, setting names, choice values, accepted ranges, list and list field names, item and entry IDs, and keywords and command IDs used by hotkeys or links are permanent. Add new names and only widen accepted ranges. Retire a name by omitting its declaration and reserve it for its original meaning. A new list field must leave existing entries visible. Wicket preserves saved values for settings that the manifest stops declaring.
+
+Use `WICKET_DATA_DIR` for disposable caches or state with a format number. Start cleanly if a file is missing, unreadable, or uses a newer format. Store user-entered data in `config.json` so it survives removal of the data folder.
+
 ### Migrating from contract 1
 
 1. Use typed `fields` and `settings` in `wicket.json`.
@@ -23,7 +27,7 @@ A breaking change bumps `contract` and replaces the old program runtime in the s
 ```
 
 Required: nonempty `name` and at least one of `command` (nonempty argv array), `items`, or a list setting that declares an `item`.
-Optional: `description` (one line for Settings), `keyword`, [`icon`](#icons), `fields`, `itemList`, integer `contract`, `settings`, and—requiring `command`—regex `match`, boolean `fallback` (default false), boolean `submit` (default false), boolean `hidden` (default false, requires `submit`), and `permissions`. Any other key triggers a repair row naming it.
+Optional: `description` (one line for Settings), `keyword`, [`icon`](#icons), `fields`, `itemList`, integer `contract`, semantic `version` (a string such as `"1.0.0"`), `settings`, and—requiring `command`—regex `match`, boolean `fallback` (default false), boolean `submit` (default false), boolean `hidden` (default false, requires `submit`), and `permissions`. Any other key triggers a repair row naming it. Agent-written extensions can omit `version`.
 
 Every manifest with a `command` must set `"contract":2`. Omitted defaults to 1. For a contract 1 program, follow [Migrating from contract 1](#migrating-from-contract-1). Items-only manifests may omit `contract` or keep 1. Higher contract versions report that a newer Wicket is needed.
 
@@ -245,7 +249,11 @@ When asked to turn an answer into an extension, emit the same body/tags from loc
 
 Bundled Swift extensions ship in `Contents/Resources/Extensions/`: `calculator`, `units` (Convert), `weather`, `links-search` (Quicklinks), `window`, `shell`, `caffeinate`, and `calendar`, each with `wicket.json`, `main`, and Swift sources (including shared `JSON.swift`). Users can ask the agent to customize a built-in. For a code change, read the current bundled sources and any existing local copy first. Work in `extensions/<name>/`, rebuild with `swiftc -O *.swift -o main`, and verify with `--extension`. Calculator and Shell avoid Foundation for speed; Quicklinks and Windows link AppKit; Calendar links EventKit. To add extra root results beside a built-in, prefer a separate `match` extension. To replace a compiled-in source (`apps`, `files`, `clipboard`), disable it in `config.json` (`providers`: `{"id":"files","enabled":false}`, keeping other entries) and write an extension (matching empty input for an app replacement).
 
-A valid local `wicket.json` takes precedence over the built-in of the same folder name. `--diagnose` reports `shadowsBuiltIn`, `localFolder`, and `bundledFolder` for an active override. Settings shows a banner with actions to restore the built-in, draft an agent request to merge the local changes onto the current built-in, or reveal the local folder. Restoring the built-in moves the local copy to the Trash and keeps settings and hotkeys in `config.json`. If Wicket cannot load the local manifest, it uses the bundled extension and shows one repair row. Recognized, unmodified contract-1 copies of Convert and Windows fall back silently.
+Bump the built-in’s manifest `version` whenever that extension changes. Keep `version` as shipped when copying or customizing a built-in. It records the base for later merges.
+
+Wicket uses the built-in when a local copy has the same version and files, ignoring the compiled `main` and Finder’s `.DS_Store`. A valid changed copy runs from the local folder. `--diagnose` reports `copyStatus`, `baseVersion`, `builtInVersion`, and the active, local, and bundled folders. If Wicket cannot load the local manifest, it uses the built-in and shows a repair row. Recognized, unmodified contract-1 copies of Convert and Windows fall back silently.
+
+In Settings, **Ask Agent to Merge** is available for changed copies and copies that need repair. Use the version tag to diff the base sources against the local copy and apply the changes to the current built-in. If the base is unknown or untagged, merge the local and built-in folders directly. Rebuild the merged local copy, set its manifest `version` to the built-in’s, and verify with `--extension`. Moving the local copy to the Trash keeps settings and hotkeys in `config.json`.
 
 - **Calculator (`calculator`):** Inline arithmetic. Use bare symbol arithmetic or a leading `=` for functions, constants, scientific notation, and `of`. A headless `--extension calculator --input` request accepts the full grammar with an optional `=`. Unit and currency expressions belong to Convert. Item ID `result`. The title uses the request's decimal mark, grouping mark, and grouping widths. The primary action copies shown precision with request decimal mark (no grouping or `≈`); **Copy Machine Number** (ASCII dot) appears when decimal mark ≠ `.`; **Use Result** prefills `=` + ungrouped result at root. Settings: `inputFormat` (`Locale`/`Dot`/`Comma`), `outputFormat` (`Automatic`/`Fixed`/`Scientific`), `precision` (0–5, default 2, with at least one significant digit in Automatic or Scientific and decimal places in Fixed). Automatic prints exact integers in full.
 - **Convert (`units`):** Inline conversions of single unit or currency quantities. Currency pairs use cached Frankfurter reference rates. Settings: `homeCurrency` (default `USD` for omitted targets and ambiguous `$`/`¥`), `decimals` (0–5 decimal places, default `2`), and `includeUnit` (default `false`).
@@ -373,7 +381,13 @@ Store caches and state in `WICKET_DATA_DIR` (writable private directory created 
 
 ```js
 function main(request) {
-  const state = JSON.parse(wicket.read("state.json") ?? '{"count":0}');
+  let state = { format: 1, count: 0 };
+  try {
+    const saved = JSON.parse(wicket.read("state.json"));
+    if (saved?.format === 1 && Number.isSafeInteger(saved.count)) state = saved;
+  } catch {
+    // Start with empty state if the saved file is unreadable.
+  }
   if (request.submitted) {
     state.count += 1;
     wicket.write("state.json", JSON.stringify(state));

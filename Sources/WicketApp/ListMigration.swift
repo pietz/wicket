@@ -35,7 +35,7 @@ import Foundation
     let windowID = "extension:window"
     if let list = windowMoveList(commands[windowID]),
       hasLegacyWindowMoves(configuration.extensions["window"], list: list),
-      canMigrateWindowMoves(locations[windowID]?.source, root: root)
+      canMigrateWindowMoves(locations[windowID], root: root)
     {
       do {
         configurationChanged = try migrateWindowMoves(list, file: file)
@@ -91,11 +91,11 @@ import Foundation
     } == true
   }
 
-  private static func canMigrateWindowMoves(_ source: ExtensionHost.Source?, root: URL) -> Bool {
+  private static func canMigrateWindowMoves(_ location: ExtensionHost.Location?, root: URL) -> Bool {
     // A broken manifest or disconnected symlink can later return with the old list schema.
-    switch source {
+    switch location?.source {
     case .brokenFallback: return false
-    case .bundled:
+    case .bundled where location?.localFolder == nil:
       return (try? FileManager.default.destinationOfSymbolicLink(atPath: root.appending(path: "window").path))
         == nil
     default: return true

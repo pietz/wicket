@@ -1,5 +1,6 @@
 {
   "contract": 2,
+  "version": "1.0.0",
   "name": "Weather",
   "description": "Current conditions and forecasts for a city, from Open-Meteo.",
   "keyword": "weather",

@@ -1,5 +1,6 @@
 {
   "contract": 2,
+  "version": "1.0.0",
   "name": "Caffeinate",
   "description": "Keeps your Mac and its display awake for a while, or until you turn it off.",
   "keyword": "caff",

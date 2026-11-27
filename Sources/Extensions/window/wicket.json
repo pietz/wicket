@@ -6,6 +6,7 @@
   "command": ["./main"],
   "permissions": ["accessibility"],
   "contract": 2,
+  "version": "1.0.0",
   "fields": [{"name": "query", "type": "text", "description": "Filter window moves"}],
   "settings": [
     {"name": "gap", "placeholder": "Gap (points)", "default": 0, "type": "number", "min": 0, "max": 200, "description": "Space at the screen edges and between tiled windows"},

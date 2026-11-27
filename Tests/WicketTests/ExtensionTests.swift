@@ -75,6 +75,9 @@ func answering(_ title: String) -> String {
     // Neither a command nor items; a pattern or fallback without a program; the view's item rule.
     #"{"name":"Bad"}"#, #"{"name":"Bad","items":[],"match":"x"}"#,
     #"{"name":"Bad","items":[],"fallback":true}"#,
+    #"{"name":"Bad","items":[],"version":"1.2"}"#,
+    #"{"name":"Bad","items":[],"version":"01.2.0"}"#,
+    #"{"name":"Bad","items":[],"version":"1.2.0-rc.01"}"#,
     #"{"name":"Bad","items":[{"id":"a","title":"A","actions":[]},{"id":"a","title":"B","actions":[]}]}"#,
     #"{"name":"Bad","items":[{"id":"","title":"A","actions":[]}]}"#,
   ] {
@@ -90,6 +93,21 @@ func answering(_ title: String) -> String {
     ExtensionManifest.self,
     from: Data(#"{"contract":2,"name":"Both","command":["echo"],"match":"x","items":[]}"#.utf8))
   #expect(both.command == ["echo"] && both.items == [])
+}
+
+@Test func extensionVersionsFollowSemanticVersionPrecedence() throws {
+  let decoder = JSONDecoder()
+  func version(_ text: String) throws -> ExtensionManifest.Version {
+    try decoder.decode(ExtensionManifest.Version.self, from: JSONEncoder().encode(text))
+  }
+  let order = try ["1.0.0-rc.2", "1.0.0-rc.10", "1.0.0-rc.z", "1.0.0", "1.0.10"].map(version)
+  for (lower, higher) in zip(order, order.dropFirst()) {
+    #expect(lower.precedes(higher))
+    #expect(!higher.precedes(lower))
+  }
+  let release = try version("1.0.0")
+  let build = try version("1.0.0+build.01")
+  #expect(release != build && !release.precedes(build) && !build.precedes(release))
 }
 
 @Test func invalidExtensionPatternsFailAtTheMatchKey() throws {

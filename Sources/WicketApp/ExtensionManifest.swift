@@ -6,6 +6,8 @@ struct ExtensionManifest: Decodable, Sendable, Equatable {
   let contract: Int
   /// The contract this Wicket reads. Raise it only for a change an older Wicket would misread.
   static let currentContract = 2
+  /// For a local copy of a built-in, this is the version it was based on.
+  let version: Version?
   let name: String
   /// One line on what it does, for Settings.
   let description: String?
@@ -45,11 +47,75 @@ struct ExtensionManifest: Decodable, Sendable, Equatable {
     let empty: Row?
   }
 
+  struct Version: Decodable, Sendable, Equatable {
+    let rawValue: String
+
+    init(from decoder: any Decoder) throws {
+      let value = try decoder.singleValueContainer()
+      let raw = try value.decode(String.self)
+      let number = "(?:0|[1-9][0-9]*)"
+      let identifier = "[0-9A-Za-z-]+"
+      let identifiers = "\(identifier)(?:\\.\(identifier))*"
+      let pattern = "\\A\(number)\\.\(number)\\.\(number)(?:-\(identifiers))?(?:\\+\(identifiers))?\\z"
+      guard raw.range(of: pattern, options: .regularExpression) != nil else {
+        throw DecodingError.dataCorruptedError(
+          in: value, debugDescription: "version must be a semantic version")
+      }
+      rawValue = raw
+      guard
+        !parts.prerelease.contains(where: { $0.count > 1 && $0.first == "0" && $0.allSatisfy(\.isNumber) })
+      else {
+        throw DecodingError.dataCorruptedError(in: value, debugDescription: "version has a leading zero")
+      }
+    }
+
+    private var parts: (core: [Substring], prerelease: [Substring]) {
+      let withoutBuild = rawValue.split(separator: "+", maxSplits: 1)[0]
+      let parts = withoutBuild.split(separator: "-", maxSplits: 1)
+      return (parts[0].split(separator: "."), parts.dropFirst().first?.split(separator: ".") ?? [])
+    }
+
+    func precedes(_ other: Self) -> Bool {
+      let lhs = parts
+      let rhs = other.parts
+      if lhs.core != rhs.core { return Self.precedes(lhs.core, rhs.core) }
+      if lhs.prerelease.isEmpty || rhs.prerelease.isEmpty {
+        return !lhs.prerelease.isEmpty && rhs.prerelease.isEmpty
+      }
+      return Self.precedes(lhs.prerelease, rhs.prerelease)
+    }
+
+    private static func precedes(_ lhs: [Substring], _ rhs: [Substring]) -> Bool {
+      for (a, b) in zip(lhs, rhs) where a != b {
+        let aNumber = a.allSatisfy(\.isNumber)
+        let bNumber = b.allSatisfy(\.isNumber)
+        if aNumber != bNumber { return aNumber }
+        if aNumber && a.count != b.count { return a.count < b.count }
+        return a < b
+      }
+      return lhs.count < rhs.count
+    }
+  }
+
+  /// Recover the readable metadata even if the rest of a local manifest needs repair.
+  struct Header: Decodable {
+    let name: String?
+    let contract: Int?
+    let version: Version?
+
+    init(from decoder: any Decoder) throws {
+      let c = try decoder.container(keyedBy: CodingKeys.self)
+      name = try? c.decode(String.self, forKey: .name)
+      contract = try? c.decodeIfPresent(Int.self, forKey: .contract) ?? 1
+      version = try? c.decode(Version.self, forKey: .version)
+    }
+  }
+
   static let maxSearchFields = 3
 
   private enum CodingKeys: String, CodingKey, CaseIterable {
     case name, description, keyword, command, icon, match, fallback, items, itemList, fields, submit, hidden,
-      settings, permissions, contract
+      settings, permissions, contract, version
   }
   enum ContractError: Error, CustomStringConvertible {
     case newer(Int)
@@ -92,6 +158,7 @@ struct ExtensionManifest: Decodable, Sendable, Equatable {
         debugDescription: "Unknown key `\(key.stringValue)`; valid keys: \(valid.joined(separator: ", "))")
     }
     name = try c.decode(String.self, forKey: .name)
+    version = try c.decodeIfPresent(Version.self, forKey: .version)
     description = try c.decodeIfPresent(String.self, forKey: .description)
     keyword = try c.decodeIfPresent(String.self, forKey: .keyword)
       .flatMap { $0.allSatisfy(\.isWhitespace) ? nil : $0 }

@@ -44,7 +44,8 @@ private let states =
     "extension-error", "fields-empty", "fields-filled", "fields-command", "fields-open",
     "fields-long", "fields-three", "history", "history-reopened", "clipboard", "clipboard-image",
     "settings-general", "settings-voice", "settings-agent", "settings-extensions", "settings-window",
-    "settings-extension-shadow", "settings-extension-local",
+    "settings-extension-behind", "settings-extension-same", "settings-extension-broken",
+    "settings-extension-local",
     "settings-quicklinks", "settings-quicklinks-add", "settings-quicklinks-edit",
     "settings-quicklinks-search", "settings-window-add", "settings-window-invalid", "settings-error",
     "settings-conflict",
@@ -92,11 +93,15 @@ private func expectedText(_ name: String) -> [String] {
   if name == "settings-window" {
     return ["Gap", "Saved Moves", "Coding layout", "Windows"]
   }
-  if name == "settings-extension-shadow" {
+  if name == "settings-extension-behind" {
     return [
-      "A local copy replaces the built-in version", "Use Built-in", "Ask Agent to Merge", "Show in Finder",
+      "Based on 0.9.0", "Built-in is", "Use Built-in", "Ask Agent to Merge", "Show in Finder",
       "Default city", "Temperature unit", "Hotkeys",
     ]
+  }
+  if name == "settings-extension-same" { return ["Same as built-in", "Move to Trash", "Show in Finder"] }
+  if name == "settings-extension-broken" {
+    return ["Based on an earlier version", "Move to Trash", "Ask Agent to Merge", "Invalid wicket.json"]
   }
   if name == "settings-extension-local" {
     return ["Site Status", "Settings", "Endpoint", "Hotkeys", "Show in Finder", "Move to Trash"]
@@ -980,9 +985,21 @@ private let installedAgent: Void = {
         ])
       ]
     }
-    if state == "settings-extensions" || state == "settings-extension-shadow" {
+    if state == "settings-extensions"
+      || ["settings-extension-behind", "settings-extension-same", "settings-extension-broken"].contains(state)
+    {
+      let local = folder.appending(path: "extensions/weather")
       try FileManager.default.copyItem(
-        at: bundledExtensions.appending(path: "weather"), to: folder.appending(path: "extensions/weather"))
+        at: bundledExtensions.appending(path: "weather"), to: local)
+      let manifest = local.appending(path: "wicket.json")
+      if state == "settings-extension-behind" {
+        var json = try #require(
+          JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as? [String: Any])
+        json["version"] = "0.9.0"
+        try JSONSerialization.data(withJSONObject: json).write(to: manifest)
+      } else if state == "settings-extension-broken" {
+        try Data("{".utf8).write(to: manifest)
+      }
       initial.providers.append(.init("extension:weather", enabled: false))
     }
     if state == "settings-extension-local" {
@@ -1042,7 +1059,8 @@ private let installedAgent: Void = {
     let selected =
       switch state {
       case "settings-window": "extension:window"
-      case "settings-extension-shadow": "extension:weather"
+      case "settings-extension-behind", "settings-extension-same", "settings-extension-broken":
+        "extension:weather"
       case "settings-extension-local": "extension:site-status"
       default: quicklinks ? "extension:links-search" : "apps"
       }

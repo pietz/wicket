@@ -14,8 +14,8 @@ private let deniedPermissions = Permissions(
   let bundledBase = root.appending(path: "bundle")
   let bundled = bundledBase.appending(path: "extensions")
   let script = "touch ran; exit 1"
-  for name in ["built-in", "override", "broken", "units", "mixed", "personal"] {
-    _ = try extensionFolder(bundledBase, name: name, script: script)
+  for name in ["built-in", "override", "broken", "units", "mixed", "personal", "same"] {
+    _ = try extensionFolder(bundledBase, name: name, script: script, fields: ["version": "1.4.0"])
   }
   let local = try extensionFolder(root, name: "local", script: script, fields: ["permissions": ["calendar"]])
   let moves: [String: Any] = [
@@ -26,10 +26,12 @@ private let deniedPermissions = Permissions(
   let override = try extensionFolder(
     root, name: "override", script: script,
     fields: [
+      "version": "1.2.0",
       "settings": [moves],
       "items": [["id": "left", "title": "Left Half", "actions": [["type": "copy", "text": "left"]]]],
     ])
-  _ = try extensionFolder(root, name: "broken", script: script, fields: ["contract": 1])
+  _ = try extensionFolder(root, name: "broken", script: script, fields: ["contract": 1, "version": "1.5.0"])
+  let same = try extensionFolder(root, name: "same", script: script, fields: ["version": "1.4.0"])
   _ = try extensionFolder(root, name: "stranded", script: script, fields: ["contract": 1])
   _ = try extensionFolder(root, name: "typo", script: script, fields: ["keywrod": "typo"])
   let mixed = try extensionFolder(root, name: "Mixed", script: script)
@@ -95,18 +97,23 @@ private let deniedPermissions = Permissions(
     return Edition.sameFolder(URL(fileURLWithPath: path), folder)
   }
   #expect(entries["extension:built-in"]?["source"] == .string("bundled"))
-  #expect(entries["extension:built-in"]?["shadowsBuiltIn"] == .bool(false))
+  #expect(entries["extension:built-in"]?["copyStatus"] == .null)
+  #expect(entries["extension:built-in"]?["builtInVersion"] == .string("1.4.0"))
   #expect(entries["extension:built-in"]?["enabled"] == .bool(false))
   #expect(entries["extension:local"]?["source"] == .string("local"))
   #expect(entries["extension:local"]?["bundledFolder"] == .null)
   #expect(try pointsTo("extension:local", "activeFolder", local))
   #expect(entries["extension:local"]?["missingPermissions"] == .array([.string("calendar")]))
-  #expect(entries["extension:override"]?["source"] == .string("local overriding bundled"))
-  #expect(entries["extension:override"]?["shadowsBuiltIn"] == .bool(true))
+  #expect(entries["extension:override"]?["source"] == .string("local"))
+  #expect(entries["extension:override"]?["copyStatus"] == .string("behind"))
+  #expect(entries["extension:override"]?["baseVersion"] == .string("1.2.0"))
+  #expect(entries["extension:override"]?["builtInVersion"] == .string("1.4.0"))
   #expect(try pointsTo("extension:override", "activeFolder", override))
   #expect(try pointsTo("extension:override", "localFolder", override))
   #expect(try pointsTo("extension:override", "bundledFolder", bundled.appending(path: "override")))
   #expect(entries["extension:units"]?["source"] == .string("retired local copy ignored"))
+  #expect(entries["extension:units"]?["copyStatus"] == .string("unknownBase"))
+  #expect(entries["extension:units"]?["baseVersion"] == .null)
   #expect(try pointsTo("extension:units", "localFolder", retired))
   #expect(entries["extension:Mixed"]?["source"] == .string("local"))
   #expect(try pointsTo("extension:Mixed", "activeFolder", mixed))
@@ -114,8 +121,13 @@ private let deniedPermissions = Permissions(
   #expect(entries["extension:personal"]?["source"] == .string("bundled"))
   #expect(entries["extension:personal"]?["localFolder"] == .null)
   #expect(entries["extension:broken"]?["source"] == .string("broken local copy, using bundled"))
-  #expect(entries["extension:broken"]?["shadowsBuiltIn"] == .bool(false))
+  #expect(entries["extension:broken"]?["copyStatus"] == .string("newer"))
+  #expect(entries["extension:broken"]?["baseVersion"] == .string("1.5.0"))
   #expect(entries["extension:broken"]?["contract"] == .number(2))
+  #expect(entries["extension:same"]?["source"] == .string("bundled"))
+  #expect(entries["extension:same"]?["copyStatus"] == .string("sameAsBuiltIn"))
+  #expect(try pointsTo("extension:same", "localFolder", same))
+  #expect(try pointsTo("extension:same", "activeFolder", bundled.appending(path: "same")))
   #expect(
     entries["extension:broken"]?["discoveryProblem"].string?.contains("uses extension contract 1") == true)
   #expect(

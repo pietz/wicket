@@ -105,6 +105,17 @@ Nothing is published yet. To publish, in this order (the appcast goes live last,
   git commit -m "Release $version"
   git tag v$version
   git push origin v$version
+EOF
+for manifest in Sources/Extensions/*/wicket.json; do
+  folder=${manifest:h}
+  extension_version=$(plutil -extract version raw -expect string -o - "$manifest")
+  tag="${folder:t}/v$extension_version"
+  if ! git show-ref --verify --quiet "refs/tags/$tag"; then
+    print -r -- "  git tag $tag"
+    print -r -- "  git push origin $tag"
+  fi
+done
+cat <<EOF
   gh release create v$version "$dmg" --verify-tag --prerelease --title "Wicket $version" --notes-file "$notes"
   git push origin main
   cp Casks/wicket.rb ../homebrew-wicket/Casks/wicket.rb

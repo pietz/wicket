@@ -1,5 +1,6 @@
 {
   "contract": 2,
+  "version": "1.0.0",
   "name": "Quicklinks",
   "description": "Open your saved links and site searches.",
   "keyword": "links",

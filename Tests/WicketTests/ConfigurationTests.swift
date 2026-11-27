@@ -36,6 +36,24 @@ private func config(_ json: String) throws -> Configuration {
     try config(#"{"providers":[{"id":"future","enabled":true}]}"#).providers[0].id == "future")
 }
 
+@MainActor @Test func savingAnExtensionSettingKeepsUndeclaredValues() throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let url = root.appending(path: "config.json")
+  try Data(
+    #"{"extensions":{"window":{"gap":"8","retiredChoice":"compact","retiredList":[{"id":"mine"}]}}}"#.utf8
+  )
+  .write(to: url)
+  let store = ConfigurationStore(url: url)
+  store.start(watching: false)
+  #expect(store.change { try $0.set("gap", to: nil, forExtension: "window") })
+  #expect(
+    try Configuration.load(at: url).extensions["window"]
+      == .object([
+        "retiredChoice": .string("compact"), "retiredList": .array([.object("id", .string("mine"))]),
+      ]))
+}
+
 @Test(arguments: [
   #"{"hotkey":"space"}"#, #"{"hotkey":"shift+a"}"#, #"{"hotkey":"hyper+space"}"#,
   #"{"backgroundTransparency":-0.1}"#, #"{"backgroundTransparency":1.1}"#,
