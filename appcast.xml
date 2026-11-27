@@ -6,6 +6,30 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.9.5</title>
+      <pubDate>Fri, 27 Nov 2026 18:01:29 +0000</pubDate>
+      <sparkle:version>56</sparkle:version>
+      <sparkle:shortVersionString>0.9.5</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Calendar
+
+- **Your next 7 days in Wicket.** Type `calendar` for an agenda under Today, Tomorrow and dated headings, with the next event or the call on now at the top. Search by title, place or calendar.
+- **Join calls with Return.** When a Meet, Zoom, Teams or Webex call is on or starts within 10 minutes, Return joins it; otherwise Return opens Calendar.app.
+- **Ask about your schedule.** The agent can read your agenda to answer questions like "when am I free on Thursday?". Invitation notes are treated as data, never as instructions.
+- Hide calendars or all-day events in Settings. Wicket asks for Calendar access the first time you open it, never while you type.
+
+## Caffeinate
+
+- **Keep your Mac awake.** Type `caff`, Tab, and a number of hours (with optional minutes and seconds), or press Return to stay awake until you turn it off. The timer keeps running when Wicket closes.
+
+## Extension versions
+
+- Built-in extensions now carry a version. If you changed a built-in and it falls behind, Settings shows "Based on 1.0.0 · Built-in is 1.1.0", and **Ask Agent to Merge** tells the agent which original your copy started from so it can keep your changes and the new fixes. It also works when an update breaks your copy.
+- A modified Quicklinks copy keeps its site icons.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.9.5</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.9.5/Wicket-0.9.5.dmg" type="application/octet-stream" sparkle:edSignature="nNUj7C1lUatt69JRL5XCgdpzZmTKUYYWmqbS7scOxAgTM1AquxQgmltxeYuwqYCyZPRfIXpDjHxn+hGLm7UUDQ==" length="4948328"/>
+    </item>
+    <item>
       <title>Wicket 0.9.4</title>
       <pubDate>Fri, 27 Nov 2026 13:50:07 +0000</pubDate>
       <sparkle:version>55</sparkle:version>
