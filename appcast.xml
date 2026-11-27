@@ -6,6 +6,20 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.9.8</title>
+      <pubDate>Fri, 27 Nov 2026 22:33:16 +0000</pubDate>
+      <sparkle:version>59</sparkle:version>
+      <sparkle:shortVersionString>0.9.8</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Cleaner glass
+
+- **Cards, tiles and selection fit the glass.** Boxes on pages now use more of the glass's own tint, so the wallpaper's colours show through them instead of turning grey. The selected row looks the same in the main list and on pages.
+- **Calmer colours.** The glass boosts the wallpaper's colours less, in both light and dark.
+- **Simpler sliders.** Settings ▸ General ▸ Transparency and Blur now move in even steps that snap into place. Transparency is how much of the desktop shows through (default 30%). Blur is how soft it gets (default 1, like the desktop widgets). Both sliders start from their new defaults, because the old positions meant something different.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.9.8</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.9.8/Wicket-0.9.8.dmg" type="application/octet-stream" sparkle:edSignature="EzokTI2jN7L/KZJPTVdEBWA6fSaaEPT0TpA3zQjorJOe366unHYaRiwVmWJt8KwcZWqvfp4Jc3NYw9b7uxyCDw==" length="4954471"/>
+    </item>
+    <item>
       <title>Wicket 0.9.7</title>
       <pubDate>Fri, 27 Nov 2026 22:04:18 +0000</pubDate>
       <sparkle:version>58</sparkle:version>
