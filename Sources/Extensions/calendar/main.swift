@@ -13,4 +13,9 @@ if case .loaded(let calendars, let events) = snapshot {
   Logger(subsystem: "app.wicket", category: "calendar").info(
     "Read \(events.count) events from \(calendars.count) calendars in \(milliseconds) ms")
 }
-print(calendarView(request, snapshot: snapshot, now: now, calendar: local))
+do {
+  print(try calendarView(request, snapshot: snapshot, now: now, calendar: local))
+} catch {
+  FileHandle.standardError.write(Data("\(error)\n".utf8))
+  exit(1)
+}

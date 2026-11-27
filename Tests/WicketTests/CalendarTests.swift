@@ -55,6 +55,16 @@ struct CalendarWeek: Decodable {
     minutes: Double = 0, query: String = "", settings: [String: String] = [:], action: String? = nil,
     snapshot: Snapshot? = nil
   ) throws -> ProviderView {
+    let output = try output(
+      minutes: minutes, query: query, settings: settings, action: action, snapshot: snapshot)
+    return try JSONDecoder().decode(ProviderView.self, from: Data(output.utf8))
+  }
+
+  /// What the extension prints, as printed.
+  func output(
+    minutes: Double = 0, query: String = "", settings: [String: String] = [:], action: String? = nil,
+    snapshot: Snapshot? = nil
+  ) throws -> String {
     var request = ProviderRequest(
       input: query, fields: query.isEmpty ? [:] : ["query": query], action: action, submitted: action != nil)
     request.settings = settings.mapValues(JSONValue.string)
@@ -63,10 +73,9 @@ struct CalendarWeek: Decodable {
     var local = Calendar(identifier: .gregorian)
     local.timeZone = try #require(TimeZone(identifier: timeZone))
     local.locale = Locale(identifier: "en_GB")
-    let output = calendarView(
+    return try calendarView(
       calendar.JSON.read(bytes, &position), snapshot: snapshot ?? self.snapshot,
       now: now.addingTimeInterval(minutes * 60), calendar: local)
-    return try JSONDecoder().decode(ProviderView.self, from: Data(output.utf8))
   }
 }
 
@@ -163,22 +172,41 @@ private func detailOf(_ row: Row?) -> String? {
   #expect(detailOf(planning)?.contains(#"<row label="Location" value="Room 2"/>"#) == true)
 }
 
-@Test func calendarMovesLinksTooLongForATagIntoActions() throws {
+@Test func calendarMovesLinksTooLongForATagIntoActionsAfterTheDefault() throws {
   let week = try CalendarWeek.recorded()
   let long = "https://teams.microsoft.com/l/meetup-join/" + String(repeating: "a", count: 1100)
   let call = AgendaEvent(
     id: "long", title: "Board call", start: week.now.addingTimeInterval(3600),
     end: week.now.addingTimeInterval(7200), calendarID: "work", location: long)
-  let view = try week.view(
-    snapshot: .loaded(calendars: [AgendaCalendar(id: "work", title: "Work")], events: [call]))
+  let work = [AgendaCalendar(id: "work", title: "Work")]
+  // An hour ahead, Return still opens Calendar; the link follows it.
+  let view = try week.view(snapshot: .loaded(calendars: work, events: [call]))
   #expect(try page(view).targets.map(\.title) == ["Board call"])
-  #expect(view.actions.map(\.title) == ["Join Microsoft Teams", "Open Calendar"])
-  #expect(opened(view.actions.first)?.absoluteString == long)
+  #expect(view.actions.map(\.title) == ["Open Calendar", "Join Microsoft Teams"])
+  #expect(opened(view.actions.last)?.absoluteString == long)
+  // Five minutes ahead, Return joins it, once.
+  let soon = try week.view(minutes: 55, snapshot: .loaded(calendars: work, events: [call]))
+  #expect(soon.actions.map(\.title) == ["Join Board call", "Open Calendar"])
+  #expect(opened(soon.actions.first)?.absoluteString == long)
+}
+
+@Test func calendarListsAnOvernightEventUntilItsEnd() throws {
+  let week = try CalendarWeek.recorded()
+  let flight = AgendaEvent(
+    id: "flight", title: "Night flight", start: week.now.addingTimeInterval(-15 * 3600),
+    end: week.now.addingTimeInterval(-6 * 3600 - 55 * 60), calendarID: "work")
+  // At 05:00 the flight that left at 22:55 yesterday lists under today until 07:00.
+  let view = try week.view(
+    minutes: -8 * 60 - 55,
+    snapshot: .loaded(calendars: [AgendaCalendar(id: "work", title: "Work")], events: [flight]))
+  #expect(view.body?.contains(#"<row label="Until 07:00" title="Night flight" value="Now">"#) == true)
 }
 
 @Test func calendarRecognizesOnlyJoinPagesOfKnownServices() {
   let accepted = [
     ("https://meet.google.com/abc-defg-hij", "Google Meet"),
+    ("https://meet.google.com/ABC-defg-hij?authuser=1", "Google Meet"),
+    ("https://meet.google.com/lookup/b6xyz7abcd", "Google Meet"),
     ("https://us02web.zoom.us/j/8123?pwd=x", "Zoom"),
     ("https://zoom.us/my/ada).", "Zoom"),
     (
@@ -192,6 +220,8 @@ private func detailOf(_ row: Row?) -> String? {
   let refused = [
     "http://zoom.us/j/1", "https://zoom.us.evil.example/j/1", "https://zoom.us@evil.example/j/1",
     "https://evilzoom.us/j/1", "https://zoom.us/pricing", "https://meet.google.com/",
+    "https://meet.google.com/landing", "https://meet.google.com/new",
+    "https://meet.google.com/abc-defg-hij/x",
     "https://zoom.us:8443/j/1",
     "https://teams.microsoft.com/v2/", "https://webex.com.evil.example/meet/x",
   ]
@@ -225,6 +255,12 @@ private func detailOf(_ row: Row?) -> String? {
   #expect(opened(denied.items.first?.actions.first)?.scheme == "x-apple.systempreferences")
   let none = try week.view(snapshot: .loaded(calendars: [], events: []))
   #expect(none.items.map(\.id) == ["no-calendars"])
+  // The agent's read lists no setup rows as events, and fails without access.
+  let noneRead = try week.view(action: "read-agenda", snapshot: .loaded(calendars: [], events: []))
+  #expect(noneRead.items.isEmpty && noneRead.body?.hasPrefix("No calendars on this Mac") == true)
+  let hiddenRead = try week.view(settings: ["hiddenCalendars": "work,home,birthdays"], action: "read-agenda")
+  #expect(hiddenRead.items.isEmpty && hiddenRead.body?.contains("All calendars are hidden") == true)
+  #expect(throws: CalendarAccessDenied.self) { try week.view(action: "read-agenda", snapshot: .denied) }
   let quiet = try week.view(
     snapshot: .loaded(calendars: [AgendaCalendar(id: "work", title: "Work")], events: []))
   #expect(quiet.items.map(\.id) == ["no-events"] && quiet.items.first?.subtitle == "1 calendar")
@@ -268,6 +304,56 @@ private func detailOf(_ row: Row?) -> String? {
   let again = try week.view(
     action: "read-agenda", snapshot: .loaded(calendars: calendars, events: twice + twice))
   #expect(Set(again.items.map(\.id)).count == 2)
+}
+
+@Test func calendarReadStaysWithinTheOutputLimit() throws {
+  let week = try CalendarWeek.recorded()
+  // Each note grows fivefold as text (`&amp;`), so whole notes for 100 events would be about 2 MB.
+  let events = (0..<100).map { index in
+    AgendaEvent(
+      id: "e\(index)", title: "Event \(index)", start: week.now.addingTimeInterval(Double(index + 10) * 60),
+      end: week.now.addingTimeInterval(Double(index + 40) * 60), calendarID: "work",
+      notes: "https://zoom.us/j/\(index) " + String(repeating: "&", count: 10_000))
+  }
+  let output = try week.output(
+    action: "read-agenda",
+    snapshot: .loaded(calendars: [AgendaCalendar(id: "work", title: "Work")], events: events))
+  #expect(output.utf8.count <= readLimit)
+  let read = try JSONDecoder().decode(ProviderView.self, from: Data(output.utf8))
+  #expect(read.items.map(\.title) == events.map(\.title))
+  let first = try #require(read.items.first?.detail)
+  #expect(first.contains("Join (Zoom): https://zoom.us/j/0") && first.hasSuffix("… (cut)"))
+  let last = try #require(read.items.last?.detail)
+  #expect(
+    last.hasPrefix("When: Mon 30 Nov") && last.hasSuffix("Place, links and notes left out (size limit)."))
+  #expect(read.items.last?.actions.isEmpty == true)
+  let body = try #require(read.body)
+  #expect(body.contains("Notes longer than 4000 bytes are cut (100 events)."))
+  #expect(body.contains("events are listed without place, links and notes"))
+}
+
+@Test func calendarEventIDsSurviveReschedulingAndTimeZoneChanges() throws {
+  func local(_ zone: String) throws -> Calendar {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = try #require(TimeZone(identifier: zone))
+    return calendar
+  }
+  let (berlin, tokyo) = (try local("Europe/Berlin"), try local("Asia/Tokyo"))
+  let instant = try Date("2026-12-01T10:00:00+01:00", strategy: .iso8601)
+  // A one-off keeps its identifier wherever it moves.
+  #expect(eventID("one", occurrence: nil, allDay: false, floating: false, calendar: berlin) == "one")
+  // A fixed-time repeat is keyed by its original instant, whatever the zone.
+  #expect(
+    eventID("rep", occurrence: instant, allDay: false, floating: false, calendar: tokyo) == "rep@1796115600")
+  // Floating and all-day repeats are keyed by local wall time, which follows the Mac's zone.
+  let tokyoTen = try Date("2026-12-01T10:00:00+09:00", strategy: .iso8601)
+  #expect(
+    eventID("f", occurrence: instant, allDay: false, floating: true, calendar: berlin)
+      == eventID("f", occurrence: tokyoTen, allDay: false, floating: true, calendar: tokyo))
+  #expect(
+    eventID("f", occurrence: instant, allDay: false, floating: true, calendar: berlin) == "f@2026-12-01T10:00"
+  )
+  #expect(eventID("d", occurrence: tokyoTen, allDay: true, floating: true, calendar: tokyo) == "d@2026-12-01")
 }
 
 /// Root typing never starts Calendar's program: it has no pattern, so only Return or a link runs it.

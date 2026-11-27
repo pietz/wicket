@@ -35,7 +35,10 @@ func meetingLink(_ text: String) -> MeetingLink? {
   func on(_ domain: String) -> Bool { host == domain || host.hasSuffix("." + domain) }
   func under(_ prefixes: String...) -> Bool { prefixes.contains { path.hasPrefix($0) } }
   let service: String
-  if host == "meet.google.com", path.count > 1 {
+  // A meeting code, or a lookup that resolves one; Meet's other pages only describe the service.
+  if host == "meet.google.com",
+    path.wholeMatch(of: #/\/([a-z]{3}-[a-z]{4}-[a-z]{3}|lookup\/[a-z0-9]+)/#) != nil
+  {
     service = "Google Meet"
   } else if on("zoom.us") || on("zoomgov.com"), under("/j/", "/my/", "/w/", "/s/", "/wc/") {
     service = "Zoom"

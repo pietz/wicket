@@ -20,13 +20,29 @@ enum EventKitReader {
 extension AgendaEvent {
   init(_ event: EKEvent) {
     let start: Date = event.startDate
-    // The occurrence date keeps a repeat's ID stable when the user moves just that repeat.
-    let occurrence = event.occurrenceDate ?? start
+    let repeats = event.hasRecurrenceRules || event.isDetached
     self.init(
-      id: "\(event.eventIdentifier ?? event.calendarItemIdentifier)@\(Int(occurrence.timeIntervalSince1970))",
+      id: eventID(
+        event.eventIdentifier ?? event.calendarItemIdentifier,
+        occurrence: repeats ? event.occurrenceDate : nil,
+        allDay: event.isAllDay, floating: event.timeZone == nil, calendar: .autoupdatingCurrent),
       title: event.title ?? "", start: start, end: event.endDate ?? start, isAllDay: event.isAllDay,
       calendarID: event.calendar?.calendarIdentifier ?? "", location: event.location ?? "",
       notes: event.notes ?? "", url: event.url, cancelled: event.status == .canceled,
       declined: event.attendees?.first(where: \.isCurrentUser)?.participantStatus == .declined)
   }
+}
+
+/// An ID that stays the same across reads. A one-off event keeps its own, even when rescheduled. A repeat
+/// adds which occurrence it is by its original date, which moving just that repeat leaves alone: the
+/// instant for a fixed-time event, else the local date (and time), which a time-zone change leaves alone.
+func eventID(_ identifier: String, occurrence: Date?, allDay: Bool, floating: Bool, calendar: Calendar)
+  -> String
+{
+  guard let occurrence else { return identifier }
+  guard allDay || floating else { return "\(identifier)@\(Int(occurrence.timeIntervalSince1970))" }
+  let local = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: occurrence)
+  var key = String(format: "%04d-%02d-%02d", local.year!, local.month!, local.day!)
+  if !allDay { key += String(format: "T%02d:%02d", local.hour!, local.minute!) }
+  return "\(identifier)@\(key)"
 }
