@@ -23,11 +23,17 @@ A breaking change bumps `contract` and replaces the old program runtime in the s
 ```
 
 Required: nonempty `name` and at least one of `command` (nonempty argv array), `items`, or a list setting that declares an `item`.
-Optional: `description` (one line for Settings), `keyword`, SF Symbol `icon`, `fields`, `itemList`, integer `contract`, `settings`, and—requiring `command`—regex `match`, boolean `fallback` (default false), boolean `submit` (default false), boolean `hidden` (default false, requires `submit`), and `permissions`. Any other key triggers a repair row naming it.
+Optional: `description` (one line for Settings), `keyword`, [`icon`](#icons), `fields`, `itemList`, integer `contract`, `settings`, and—requiring `command`—regex `match`, boolean `fallback` (default false), boolean `submit` (default false), boolean `hidden` (default false, requires `submit`), and `permissions`. Any other key triggers a repair row naming it.
 
 Every manifest with a `command` must set `"contract":2`. Omitted defaults to 1. For a contract 1 program, follow [Migrating from contract 1](#migrating-from-contract-1). Items-only manifests may omit `contract` or keep 1. Higher contract versions report that a newer Wicket is needed.
 
 `command` performs no shell expansion. Use `"wicket-js"`, a relative executable (with execute bit and shebang; resolved in the extension folder), a bare executable on Wicket's PATH, or an absolute executable / installed interpreter, e.g. `["/usr/bin/python3","main.py"]`.
+
+### Icons
+
+Use `icon` in the manifest or on an item for an SF Symbol name or a local image file. A value ending in `.png` or `.svg` (case-insensitive) is a file path. Every other value is treated as an SF Symbol name. URLs are invalid. Relative paths must resolve inside the extension folder. Absolute paths must resolve inside the extension folder or that extension's `WICKET_DATA_DIR`. Wicket follows symlinks before checking those boundaries and requires a readable PNG or SVG of the named type.
+
+An omitted or unusable item icon falls back to the manifest icon. If that is also unavailable, Wicket uses the `app` symbol. Items that open or reveal a local file use its native file icon unless the item specifies an image path. Icons in Markdown body tags use SF Symbol names.
 
 ### Triggers and ranking
 
@@ -92,7 +98,7 @@ An unsubmitted request can load a configured default for display, as Weather doe
 ]}
 ```
 
-Static items use the view `items` schema and match at the root without running a process (top 20 fuzzy matches by title/keywords per extension, plus any exact keyword-with-argument matches). Omitted `icon` falls back to the manifest icon; omitted `subtitle` shows the extension name during ordinary root search. Without `command`, entering the extension lists its items (declare a text field to filter). With `command`, the program renders the command view and static items add root rows (typically `run` actions). Use static items for a known list and `match` for an answer computed from what was typed.
+Static items use the view `items` schema and match at the root without running a process (top 20 fuzzy matches by title/keywords per extension, plus any exact keyword-with-argument matches). Omitted `subtitle` shows the extension name during ordinary root search. Without `command`, entering the extension lists its items (declare a text field to filter). With `command`, the program renders the command view and static items add root rows (typically `run` actions). Use static items for a known list and `match` for an answer computed from what was typed.
 
 A live command can set `"itemList":{}` to use its indexed items as its default view, as Quicklinks does. Set `itemList.empty` to a row shown when there are no items. Root pattern runs, named actions, and requests with fields beyond the main text filter go to the program. Remove `itemList` from a local Quicklinks manifest to have its program render the default view.
 
@@ -130,7 +136,7 @@ A JSON view contains `body`, `items`, or a nonempty `fields` array. It can also 
 - **Page + items:** Items render after the body and any appended controls as native-styled rows. Pages start unselected. With nothing selected, Return asks the agent if input is unclaimed; otherwise submits (`submit:true`) or runs the first view-level action (live command). Keep confirmation-worthy actions on a labelled target, not the default Return action. A list-only view uses view `actions` only for a submitted `save` response.
 - **`back`:** Optional field override map (e.g. `"back":{"view":""}`) so Escape reruns the command unsubmitted with those overrides (omitted keys kept, `""` clears).
 
-**Item schema:** Required: nonempty unique `id`, `title`, `actions` array (may be empty). Optional: `subtitle`, SF Symbol `icon`, `keywords`, `prominent:true` (calculator-sized first row), `detail` (Markdown + body tags). Keep IDs stable across updates so selection sticks. File `open`/`reveal` actions get native file icons. Return runs the first action; ⌘K and right-click list all actions (or view `actions` on an unselected page). Unknown action types, wrong types, missing required fields, and duplicate IDs fail; extra keys are ignored.
+**Item schema:** Required: nonempty unique `id`, `title`, `actions` array (may be empty). Optional: `subtitle`, [`icon`](#icons), `keywords`, `prominent:true` (calculator-sized first row), `detail` (Markdown + body tags). Keep IDs stable across updates so selection sticks. Return runs the first action; ⌘K and right-click list all actions (or view `actions` on an unselected page). Unknown action types, wrong types, missing required fields, and duplicate IDs fail; extra keys are ignored.
 
 **`detail`:** Inside a list command, shows as a read-only side preview as arrows move (no request; keep titles short). On a page, Return opens the detail and ⌘K keeps the item's actions. Ignored at the root.
 

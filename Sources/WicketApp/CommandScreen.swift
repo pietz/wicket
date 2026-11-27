@@ -8,10 +8,15 @@ import Foundation
   var id: String { get }
   /// Nil once the command is gone, such as a removed extension.
   var descriptor: CommandDescriptor? { get }
+  var iconScope: ExtensionIcons.Scope? { get }
   /// What answering a request takes. Synchronous, so what needs no process shows before Return returns.
   func work(for request: CommandScreenRequest) -> CommandWork
   /// What a question asked from the screen tells the agent it showed; nil for the host's own commands.
   func agentContext(from shown: CommandScreen.Shown) -> AgentContext?
+}
+
+extension CommandScreenBehavior {
+  var iconScope: ExtensionIcons.Scope? { nil }
 }
 
 /// What a command is to its screen and the keys.
@@ -287,7 +292,8 @@ enum CommandOutcome {
     let controls = view.pageControls(reservedFields: descriptor?.fields ?? [])
     guard view.body != nil || !controls.isEmpty else { return nil }
     var page = Page(
-      body: view.body ?? "", items: view.items, runs: true, controls: descriptor == nil ? [] : controls)
+      body: view.body ?? "", items: view.items, runs: true, controls: descriptor == nil ? [] : controls,
+      iconScope: view.items.isEmpty ? nil : behavior.iconScope)
     page.targetRevision = UUID().uuidString
     return page
   }

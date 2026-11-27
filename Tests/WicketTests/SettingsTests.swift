@@ -380,6 +380,11 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   #expect(
     try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "examples").path).sorted()
       == ["agenda", "canvas-controls"])
+  let agenda = root.appending(path: "examples/agenda")
+  let manifest = try JSONDecoder().decode(
+    ExtensionManifest.self, from: Data(contentsOf: agenda.appending(path: "wicket.json")))
+  #expect(manifest.icon == "agenda.svg")
+  #expect(FileManager.default.fileExists(atPath: agenda.appending(path: "agenda.svg").path))
   let names = ["currency", "quicklinks", "web-search"]
   let installed = try names.map { try extensionFolder(root, name: $0, script: "echo keep") }
   try ExtensionHost.installFiles(in: root)

@@ -35,6 +35,7 @@ private let states =
     "working", "working-text", "permission-routine", "permission-high",
     "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
     "extension-pattern", "extension-list", "extension-quicklinks-empty", "extension-detail", "extension-both",
+    "extension-image-icons",
     "weather-keyword", "weather-root", "weather-page", "weather-default", "convert-cached-rate",
     "extension-targets", "extension-detail-larger", "asking", "asking-extension",
     "extension-error", "fields-empty", "fields-filled", "fields-command", "fields-open",
@@ -103,6 +104,7 @@ private func expectedText(_ name: String) -> [String] {
     return ["Add Window Move", "Coding", "Width", "Enter a number from 10 to 100", "Keyword", "Save"]
   }
   if name.contains("settings-") { return [] }
+  if name == "extension-image-icons" { return ["Release Notes", "Team Tools"] }
   if name == "extension-quicklinks-empty" { return ["Quicklinks", "Add a Quicklink"] }
   if name.contains("clipboard-image") {
     // Text recognition reads × as x, now and then.
@@ -476,6 +478,17 @@ private let installedAgent: Void = {
       model.navigator.input = "settings"
       await model.navigator.settled()
       model.navigator.toggleActions()
+    case "extension-image-icons":
+      let tools = try extensionFolder(
+        folder, name: "team-tools",
+        fields: [
+          "name": "Team Tools", "icon": "hammer",
+          "items": [["id": "release", "title": "Release Notes", "icon": "release.png", "actions": []]],
+        ])
+      try FileManager.default.copyItem(
+        at: fixtureURL("image-icons/release.png"), to: tools.appending(path: "release.png"))
+      await model.extensions.reload()
+      model.navigator.input = "release"
     case _ where name.hasPrefix("extension-"): try await configureExtension(name, model)
     case "asking": model.navigator.askAgent()
     case "asking-extension":
@@ -1255,6 +1268,8 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "extension-pattern":
     let decimal = ProviderRequest.NumberMarks.current.decimal
     #expect(model.navigator.results.first?.row.title.contains("6\(decimal)21") == true)
+  case "extension-image-icons":
+    #expect(model.navigator.results.first?.row.icon == "release.png")
   case "extension-quicklinks-empty":
     #expect(model.navigator.results.map(\.row.title) == ["Add a Quicklink…"])
   case "extension-list": #expect(model.navigator.command != nil && !model.navigator.results.isEmpty)

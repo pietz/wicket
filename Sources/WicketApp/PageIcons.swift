@@ -59,7 +59,7 @@ import ImageIO
       guard let index = variable("s:" + symbol) else { continue }
       rules += "[data-icon=\(cssString(symbol))] { --icon: var(--i\(index)); }\n"
     }
-    for row in page.targets {
+    for row in page.targets where page.iconRequests[row.id] == nil {
       guard
         let file = row.actions.first(where: { if case .detail = $0.kind { false } else { true } })?.fileURL,
         let index = variable("f:" + file.path)
@@ -68,6 +68,21 @@ import ImageIO
     }
     let declarations = variables.sorted { $0.value < $1.value }.map { "--i\($1): url(\(images[$0]!));" }
     return ":root { " + declarations.joined(separator: " ") + " }\n" + rules
+  }
+
+  static func extensionStylesheet(for page: Page) async -> String {
+    guard !page.iconRequests.isEmpty else { return "" }
+    return await Task.detached {
+      var rules = ""
+      for (id, request) in page.iconRequests.sorted(by: { $0.key < $1.key }) {
+        guard let image = await ExtensionIcons.shared.image(for: request),
+          let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
+        else { continue }
+        rules +=
+          "[data-target=\(cssString(id))] { --image: url(data:image/png;base64,\(png.base64EncodedString())); --icon: none; --icon-radius: 4px; }\n"
+      }
+      return rules
+    }.value
   }
 
   private static func image(_ key: String) -> String? {
@@ -107,7 +122,7 @@ import ImageIO
   }
 
   /// A quoted CSS string: anything but letters and digits as an escape, so no id can end the selector.
-  static func cssString(_ value: String) -> String {
+  nonisolated static func cssString(_ value: String) -> String {
     "\""
       + value.unicodeScalars.map {
         $0.properties.isAlphabetic || ("0"..."9").contains($0)

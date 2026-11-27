@@ -82,7 +82,7 @@ Customize standing instructions in `instructions.md` and page styles in `theme.c
 
 ## Extensions
 
-An extension is a folder in `~/.config/wicket/extensions/` with `wicket.json` and an optional program (or static items only). Wicket discovers and enables it live with no restart or approval; enabled extensions run with your access. Toggle extensions in Settings ▸ Extensions. Extensions needing Accessibility or Calendar declare them in `permissions`, and Wicket gates access using its own macOS grant. See `extension-contract.md` in the working folder ([source](Sources/WicketApp/Resources/extension-contract.md)).
+An extension is a folder in `~/.config/wicket/extensions/` with `wicket.json` and an optional program (or static items only). Wicket discovers and enables it live with no restart or approval; enabled extensions run with your access. Toggle extensions in Settings ▸ Extensions. Manifest and item icons accept SF Symbol names and local PNG or SVG files. Extensions needing Accessibility or Calendar declare them in `permissions`, and Wicket gates access using its own macOS grant. See `extension-contract.md` in the working folder ([source](Sources/WicketApp/Resources/extension-contract.md)).
 
 Settings ▸ Extensions shows each extension's description, settings, and hotkeys. Local extensions have **Show in Finder** and **Move to Trash…** below their hotkeys. Ask the agent to customize a built-in. When a local copy replaces a built-in, its row has a marker and the pane offers **Use Built-in** to move the local copy to the Trash, **Ask Agent to Merge** to draft a request to carry your changes onto the current built-in, and **Show in Finder** to locate the copy. Personal lists and settings live in `config.json`.
 

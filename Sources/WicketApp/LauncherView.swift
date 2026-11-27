@@ -682,11 +682,47 @@ struct LauncherView: View {
     ).height > 34
   }
   @ViewBuilder private func icon(_ result: Result) -> some View {
-    if let url = result.row.actions.first?.fileURL {
+    let value = result.row.icon
+    if let url = result.row.actions.first?.fileURL, ExtensionIcons.prefersNativeFile(value) {
       Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable()
+    } else if let command = navigator.extensions.commands[result.provider] {
+      let manifest = command.manifest.icon
+      let (paths, fallback) = ExtensionIcons.choices(value, manifest: manifest)
+      if paths.isEmpty {
+        Self.symbol(fallback)
+      } else {
+        RowImage(
+          request: .init(paths: paths, scope: navigator.extensions.iconScope(for: command)),
+          fallback: fallback)
+      }
     } else {
-      Image(systemName: result.row.icon ?? "app").font(.system(size: 20)).foregroundStyle(
-        .secondary)
+      Self.symbol(value ?? "app")
+    }
+  }
+
+  fileprivate static func symbol(_ name: String) -> some View {
+    Image(systemName: name).font(.system(size: 20)).foregroundStyle(.secondary)
+  }
+}
+
+private struct RowImage: View {
+  let request: ExtensionIcons.Request
+  let fallback: String
+  @State private var decoded: (request: ExtensionIcons.Request, image: CGImage)?
+
+  var body: some View {
+    Group {
+      if let decoded, decoded.request == request {
+        Image(decorative: decoded.image, scale: 3)
+          .resizable().scaledToFit().clipShape(.rect(cornerRadius: 4))
+      } else {
+        LauncherView.symbol(fallback)
+      }
+    }
+    .task(id: request) {
+      let image = await ExtensionIcons.shared.image(for: request)
+      guard !Task.isCancelled else { return }
+      decoded = image.map { (request, $0) }
     }
   }
 }

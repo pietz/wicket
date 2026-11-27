@@ -258,7 +258,10 @@ final class AnswerRenderer {
           let currentTurn = turn
           let isStreaming = streaming
           let text = shown.source
-          let icons = PageIcons.stylesheet(for: shown) + (await PageIcons.picture(shown.picture))
+          let icons =
+            PageIcons.stylesheet(for: shown)
+            + (await PageIcons.extensionStylesheet(for: shown))
+            + (await PageIcons.picture(shown.picture))
           let reset = currentTurn != renderedTurn
           // Whether this pass measures a page not shown yet, taken before it suspends: an `update` meanwhile
           // clears `staging`, and the height found then belongs to neither page.

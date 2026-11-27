@@ -20,6 +20,8 @@ struct Page: Equatable, Sendable {
   var targets: [Row]
   /// The SF Symbols the page's items and cards show, each one that exists, once.
   var symbols: [String]
+  /// Image requests for appended JSON items. Markdown tags only name symbols.
+  let iconRequests: [String: ExtensionIcons.Request]
   /// The complete fenced code blocks the source shows, each with the id of the target that copies it:
   /// the renderer puts a copy button on the block that starts there.
   var code: [Code]
@@ -42,7 +44,7 @@ struct Page: Equatable, Sendable {
   /// `copies`, as beside a list, which takes no clicks, code blocks are only shown.
   init(
     body: String, items: [Row] = [], runs: Bool, streaming: Bool = false, picture: URL? = nil,
-    copies: Bool = true, controls preparedControls: [Control] = []
+    copies: Bool = true, controls preparedControls: [Control] = [], iconScope: ExtensionIcons.Scope? = nil
   ) {
     self.picture = picture
     let bytes = Array(body.utf8)
@@ -176,6 +178,7 @@ struct Page: Equatable, Sendable {
       source += "\n\n" + unplaced.map(placeControl).joined(separator: "\n")
     }
     var own: [Row] = []
+    var iconRequests: [String: ExtensionIcons.Request] = [:]
     for item in items {
       // An item's detail opens with Return, as a row's content does; its own actions stay in ⌘K.
       let detail =
@@ -186,11 +189,19 @@ struct Page: Equatable, Sendable {
         icon: item.icon, actions: detail + item.actions, keywords: item.keywords, prominent: item.prominent)
       own.append(row)
       let values = [("title", row.title)] + (row.subtitle.map { [("subtitle", $0)] } ?? [])
-      source += "\n\n" + tag("row", row.id, values, icon: row.icon ?? "app", close: true)
+      var symbol = row.icon ?? "app"
+      let hasFile = item.actions.first?.fileURL != nil
+      if let iconScope, !(hasFile && ExtensionIcons.prefersNativeFile(row.icon)) {
+        let choice = ExtensionIcons.choices(row.icon, manifest: iconScope.manifest)
+        symbol = choice.symbol
+        if !choice.paths.isEmpty { iconRequests[row.id] = .init(paths: choice.paths, scope: iconScope) }
+      }
+      source += "\n\n" + tag("row", row.id, values, icon: symbol, close: true)
     }
     self.source = source
     self.targets = targets + own
     self.symbols = symbols
+    self.iconRequests = iconRequests
     self.code = code
     self.fields = fields
   }

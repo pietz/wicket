@@ -249,6 +249,11 @@ final class ExtensionHost {
     // A fixture host can keep its data in the same scratch folder as its manifests.
     runner = ExtensionRunner(dataDirectory: dataDirectory ?? folder.appending(path: "extension-data"))
   }
+  func iconScope(for command: ExtensionCommand) -> ExtensionIcons.Scope {
+    .init(
+      folder: command.folder, data: runner.dataDirectory(for: command.id), manifest: command.manifest.icon)
+  }
+
   func start() {
     watchRoots = watchRoots ?? []
     rescan()
@@ -553,12 +558,15 @@ final class ExtensionHost {
     // The contract is Wicket's reference, not the user's: rewritten each launch so agents read this version.
     try Data(contentsOf: Bundle.wicket.url(forResource: "extension-contract", withExtension: "md")!)
       .write(to: folder.appending(path: "extension-contract.md"), options: .atomic)
-    // Each example is its manifest and program.
+    // Each example is a manifest, program, and any assets beside them.
     for name in ["agenda", "canvas-controls"] {
       let target = folder.appending(path: "examples/" + name)
       guard !FileManager.default.fileExists(atPath: target.path) else { continue }
       try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
-      for (source, destination) in [(name + ".json", "wicket.json"), (name + ".py", "main.py")] {
+      let files =
+        [(name + ".json", "wicket.json"), (name + ".py", "main.py")]
+        + (name == "agenda" ? [("agenda.svg", "agenda.svg")] : [])
+      for (source, destination) in files {
         guard let url = Bundle.wicket.url(forResource: source, withExtension: nil) else { continue }
         try FileManager.default.copyItem(at: url, to: target.appending(path: destination))
       }

@@ -136,7 +136,7 @@ w-row + w-row::after { content: ""; position: absolute; top: 0; left: calc(10px 
 :is(w-row[data-selected], w-row[data-selected] + w-row)::after { display: none; }
 w-row[data-selected] { background: var(--selection); }
 /* A symbol at 16 points in the native icon's 26-point frame; a file's own icon fills the frame. */
-w-row::before { content: ""; flex: none; width: calc(26px / var(--zoom, 1)); height: calc(26px / var(--zoom, 1)); background: var(--image, var(--secondary)) center / contain no-repeat; mask: var(--icon, none) center / calc(21px / var(--zoom, 1)) no-repeat; }
+w-row::before { content: ""; flex: none; width: calc(26px / var(--zoom, 1)); height: calc(26px / var(--zoom, 1)); border-radius: calc(var(--icon-radius, 0px) / var(--zoom, 1)); background: var(--image, var(--secondary)) center / contain no-repeat; mask: var(--icon, none) center / calc(21px / var(--zoom, 1)) no-repeat; }
 w-row:not([data-icon])::before { visibility: hidden; }
 :is(w-rows:not(:has(> [data-icon])) > w-row, w-row[data-label])::before { display: none; }
 w-row [data-field] { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

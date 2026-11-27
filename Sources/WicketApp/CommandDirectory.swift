@@ -243,6 +243,7 @@ struct ExtensionScreen: CommandScreenBehavior {
   let id: String
   let directory: CommandDirectory
   private var command: ExtensionCommand? { directory.extensions.commands[id] }
+  var iconScope: ExtensionIcons.Scope? { command.map(directory.extensions.iconScope) }
   var descriptor: CommandDescriptor? {
     command.map {
       CommandDescriptor(
