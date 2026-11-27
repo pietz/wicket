@@ -88,8 +88,8 @@ struct SettingsPane: View {
   @State var entryEditor: SettingsEntryDraft?
   @State private var automaticChecks: Bool?
   @State private var recorder = ShortcutRecorder()
-  @State private var transparency = SliderEdit("backgroundTransparency")
-  @State private var blur = SliderEdit("blur")
+  @State private var transparency = SliderEdit("transparency")
+  @State private var blur = SliderEdit("blurRadius")
   @State private var loginStatus = SMAppService.mainApp.status
   @State private var loginProblem: String?
   @State private var microphone = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -204,8 +204,9 @@ struct SettingsPane: View {
       }
       Slider(
         value: Binding(
-          get: { transparency.value ?? config.backgroundTransparency }, set: { transparency.value = $0 }),
-        in: 0...1
+          get: { transparency.value ?? config.transparency }, set: { transparency.value = $0 }),
+        in: 0...1,
+        step: 0.1
       ) {
         Text("Transparency")
       } minimumValueLabel: {
@@ -216,8 +217,9 @@ struct SettingsPane: View {
         transparency.editingChanged(editing, store: store)
       }
       Slider(
-        value: Binding(get: { blur.value ?? config.blur }, set: { blur.value = $0 }),
-        in: Configuration.blurRange
+        value: Binding(get: { blur.value ?? config.blurRadius }, set: { blur.value = $0 }),
+        in: Configuration.blurRadiusRange,
+        step: 0.5
       ) {
         Text("Blur")
       } minimumValueLabel: {

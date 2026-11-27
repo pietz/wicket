@@ -83,16 +83,12 @@ struct Configuration: Codable, Equatable, Sendable {
   var pendingPersonalItems: [String: ListMigration.Pending] = [:]
   var appearance = Appearance.system
   var resultsOnlyWhenTyping = false
-  /// Transparency slider, mapped to tint and saturation by `GlassBlur`.
-  var backgroundTransparency: Double = 0.5
-  /// The defaults of earlier looks, which every new file stored: 0.15 before Liquid Glass (through 0.3.4),
-  /// 0.75 for the frosted tint. `blur` used to distinguish newer files. A sparse file can omit `blur`,
-  /// so an explicit choice of either number can record that intent separately.
-  static let oldDefaultTransparencies: Set<Double> = [0.15, 0.75]
-  static let transparencyIntentKey = LegacyKey.backgroundTransparencyIsExplicit.rawValue
-  /// Blur slider, mapped to a backdrop radius by `GlassBlur`.
-  var blur = 5.0
-  static let blurRange = 0.0...10.0
+  /// How much of the backdrop shows through the glass's tint (`GlassBlur.style`). New names, so values
+  /// from the earlier curved sliders (`backgroundTransparency`, `blur`) are never read on this scale.
+  var transparency = 0.3
+  /// The glass's blur radius (`GlassBlur.radius`); 1 is the desktop widgets'.
+  var blurRadius = 1.0
+  static let blurRadiusRange = 0...GlassBlur.maxRadius
   static let builtins = ["apps", "files", "clipboard"]
   /// A source without an entry is on, except clipboard history, which keeps what the user copies.
   static func enabledByDefault(_ id: String) -> Bool { id != "clipboard" }
@@ -102,10 +98,10 @@ struct Configuration: Codable, Equatable, Sendable {
   var runsExtensions = true
   init() {}
   private enum CodingKeys: String, CodingKey {
-    case hotkey, hotkeys, appearance, backgroundTransparency, blur, providers, agent, voice, textSize,
+    case hotkey, hotkeys, appearance, transparency, blurRadius, providers, agent, voice, textSize,
       extensions, resultsOnlyWhenTyping, migratedPersonalItems, pendingPersonalItems
   }
-  private enum LegacyKey: String, CodingKey { case compactOnOpen, backgroundTransparencyIsExplicit }
+  private enum LegacyKey: String, CodingKey { case compactOnOpen }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     textSize = try c.decodeIfPresent(TextSize.self, forKey: .textSize) ?? textSize
@@ -124,14 +120,8 @@ struct Configuration: Codable, Equatable, Sendable {
       // Fall back to the name shipped in 0.6.0 until this preference is edited.
       resultsOnlyWhenTyping = try legacy.decodeIfPresent(Bool.self, forKey: .compactOnOpen) ?? false
     }
-    let storedBlur = try c.decodeIfPresent(Double.self, forKey: .blur)
-    blur = storedBlur ?? blur
-    if let stored = try c.decodeIfPresent(Double.self, forKey: .backgroundTransparency) {
-      let explicit = try legacy.decodeIfPresent(Bool.self, forKey: .backgroundTransparencyIsExplicit)
-      if !Self.oldDefaultTransparencies.contains(stored) || (explicit ?? (storedBlur != nil)) {
-        backgroundTransparency = stored
-      }
-    }
+    transparency = try c.decodeIfPresent(Double.self, forKey: .transparency) ?? transparency
+    blurRadius = try c.decodeIfPresent(Double.self, forKey: .blurRadius) ?? blurRadius
     providers = try c.decodeIfPresent([ProviderEntry].self, forKey: .providers) ?? providers
     guard hotkey.leavesTypingAlone else {
       throw DecodingError.dataCorruptedError(
@@ -141,14 +131,13 @@ struct Configuration: Codable, Equatable, Sendable {
       throw DecodingError.dataCorruptedError(
         forKey: .hotkeys, in: c, debugDescription: "One hotkey per address")
     }
-    guard (0...1).contains(backgroundTransparency) else {
+    guard (0...1).contains(transparency) else {
       throw DecodingError.dataCorruptedError(
-        forKey: .backgroundTransparency, in: c,
-        debugDescription: "Transparency must be between 0 and 1")
+        forKey: .transparency, in: c, debugDescription: "Transparency must be between 0 and 1")
     }
-    guard Self.blurRange.contains(blur) else {
+    guard Self.blurRadiusRange.contains(blurRadius) else {
       throw DecodingError.dataCorruptedError(
-        forKey: .blur, in: c, debugDescription: "Blur must be between 0 and 10")
+        forKey: .blurRadius, in: c, debugDescription: "Blur radius must be between 0 and 5")
     }
     guard Set(providers.map(\.id)).count == providers.count,
       providers.allSatisfy({ !$0.id.isEmpty })

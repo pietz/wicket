@@ -12,17 +12,11 @@ private func config(_ json: String) throws -> Configuration {
   #expect(Shortcut.default == (try Shortcut("option+space")))
   #expect(Shortcut.default.keyCode == 49 && Shortcut.default.modifiers == .option)
   #expect(Shortcut.default.symbols == "⌥Space")
-  let changed = try config(#"{"backgroundTransparency":0.4}"#)
+  let changed = try config(#"{"transparency":0.4}"#)
   #expect(changed.hotkey == .default)
-  #expect(changed.backgroundTransparency == 0.4)
-  // Files from before the clear glass (no `blur`) with an earlier look's default get the current one;
-  // newer files keep every value.
-  #expect(try config(#"{"backgroundTransparency":0.15}"#).backgroundTransparency == 0.5)
-  #expect(try config(#"{"backgroundTransparency":0.75}"#).backgroundTransparency == 0.5)
-  #expect(try config(#"{"backgroundTransparency":0.75,"blur":4}"#).backgroundTransparency == 0.75)
-  #expect(try config(#"{"backgroundTransparency":0.15,"blur":4}"#).backgroundTransparency == 0.15)
+  #expect(changed.transparency == 0.4)
   var saved = Configuration()
-  saved.backgroundTransparency = 0.75
+  saved.transparency = 0.7
   #expect(try JSONDecoder().decode(Configuration.self, from: JSONEncoder().encode(saved)) == saved)
 }
 
@@ -56,8 +50,8 @@ private func config(_ json: String) throws -> Configuration {
 
 @Test(arguments: [
   #"{"hotkey":"space"}"#, #"{"hotkey":"shift+a"}"#, #"{"hotkey":"hyper+space"}"#,
-  #"{"backgroundTransparency":-0.1}"#, #"{"backgroundTransparency":1.1}"#,
-  #"{"blur":-1}"#, #"{"blur":10.5}"#, #"{"appearance":"sepia"}"#,
+  #"{"transparency":-0.1}"#, #"{"transparency":1.1}"#,
+  #"{"blurRadius":-1}"#, #"{"blurRadius":5.5}"#, #"{"appearance":"sepia"}"#,
   #"{"agent":{"answerRetentionSeconds":120}}"#,
   #"{"providers":[{"id":"apps","enabled":true},{"id":"apps","enabled":false}]}"#,
   #"{"providers":[{"id":"","enabled":true}]}"#, #"{"providers":false}"#, "{",

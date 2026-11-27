@@ -272,14 +272,14 @@ struct LauncherView: View {
     return ZStack(alignment: .top) {
       VStack(spacing: PaletteLayout.gap) {
         GlassSurface(
-          role: .pill, radius: 28, transparency: configuration.backgroundTransparency,
-          blur: configuration.blur,
+          role: .pill, radius: 28, transparency: configuration.transparency,
+          blurRadius: configuration.blurRadius,
           drawsGlass: drawsGlass
         ).frame(height: PaletteLayout.search)
         if shown.showsCard {
           GlassSurface(
-            role: .card, radius: 22, transparency: configuration.backgroundTransparency,
-            blur: configuration.blur,
+            role: .card, radius: 22, transparency: configuration.transparency,
+            blurRadius: configuration.blurRadius,
             drawsGlass: drawsGlass
           ).frame(height: cardHeight)
         }

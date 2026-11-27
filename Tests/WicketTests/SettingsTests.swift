@@ -37,7 +37,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     #expect(try !Configuration.load(at: file.url).resultsOnlyWhenTyping)
     try file.set("resultsOnlyWhenTyping", to: true)
     try file.set("hotkey", to: "ctrl+option+k")
-    try file.set("backgroundTransparency", to: 0.65)
+    try file.set("transparency", to: 0.65)
     try file.set("enabled", to: false, in: "voice")
     try file.selectAgent("codex")
     for (key, value) in [("model", "gpt-6"), ("effort", "high"), ("mode", "workspace-write")] {
@@ -48,7 +48,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     let config = try Configuration.load(at: file.url)
     #expect(config.resultsOnlyWhenTyping)
     #expect(config.hotkey == (try Shortcut("ctrl+option+k")))
-    #expect(config.backgroundTransparency == 0.65 && !config.voice.listenOnOpen)
+    #expect(config.transparency == 0.65 && !config.voice.listenOnOpen)
     #expect(config.agent.agent == .codex && config.agent.model == "gpt-6")
     #expect(config.agent.effort == "high" && config.agent.mode == "workspace-write")
     #expect(config.providers == [.init("files", enabled: false)])
@@ -152,13 +152,13 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
 
 @Test func settingsReadFreshDiskAndRejectInvalidInputWithoutWriting() throws {
   try withSettings { file in
-    try Data(#"{"external":true,"backgroundTransparency":0.8}"#.utf8).write(to: file.url, options: .atomic)
+    try Data(#"{"external":true,"transparency":0.8}"#.utf8).write(to: file.url, options: .atomic)
     try file.set("enabled", to: false, in: "voice")
     let good = try Data(contentsOf: file.url)
-    #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.8)
+    #expect(try Configuration.load(at: file.url).transparency == 0.8)
     #expect(try JSONDecoder().decode(JSONValue.self, from: good)["external"] == .bool(true))
     for (key, value) in [
-      ("hotkey", "space" as Any), ("backgroundTransparency", 2 as Any), ("providers", false as Any),
+      ("hotkey", "space" as Any), ("transparency", 2 as Any), ("providers", false as Any),
     ] {
       #expect(throws: (any Error).self) { try file.set(key, to: value) }
       #expect(try Data(contentsOf: file.url) == good)
@@ -250,7 +250,7 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
 
 @Test func settingsWritesReadableDecimalsAndPaths() throws {
   try withSettings(#"{"future":"https://example.com/a"}"#) { file in
-    try file.set("backgroundTransparency", to: 0.65)
+    try file.set("transparency", to: 0.65)
     try file.set("enabled", to: false, in: "voice")
     let text = try String(contentsOf: file.url, encoding: .utf8)
     #expect(text.contains("0.65") && !text.contains("0.65000000000000002"))
@@ -274,12 +274,12 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   try withSettings { file in
     let store = ConfigurationStore(url: file.url)
     let original = try Data(contentsOf: file.url)
-    var slider = SliderEdit("backgroundTransparency")
+    var slider = SliderEdit("transparency")
     slider.editingChanged(true, store: store)
     for tick in [0.61, 0.638, 0.654] { slider.value = tick }
     #expect(try Data(contentsOf: file.url) == original && slider.value == 0.654)
     slider.editingChanged(false, store: store)
-    #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.65)
+    #expect(try Configuration.load(at: file.url).transparency == 0.65)
     let written = try Data(contentsOf: file.url)
     slider.editingChanged(false, store: store)
     #expect(slider.value == nil)
@@ -677,22 +677,8 @@ func retiredCopiesCanBeTrashedWithoutMovingUnrelatedFiles(keepItems: Bool) async
   #expect(files.fileExists(atPath: local.appending(path: "wicket.json").path))
 }
 
-@MainActor @Test(arguments: [0.75, 0.15])
-func theSliderSavesEveryTransparencyExactly(value: Double) throws {
-  // An untouched old file stores this value but reads as 0.5, so choosing it is a change to save.
-  for json in ["{}", #"{"backgroundTransparency":\#(value)}"#] {
-    try withSettings(json) { file in
-      var slider = SliderEdit("backgroundTransparency")
-      slider.value = value
-      slider.editingChanged(false, store: ConfigurationStore(url: file.url))
-      let saved = try Configuration.load(at: file.url)
-      #expect(saved.backgroundTransparency == value)
-    }
-  }
-}
-
 @Test func anEditThatChangesNothingLeavesTheFileUntouched() throws {
-  for json in [#"{ "backgroundTransparency": 0.75 }"#, #"{ "blur": 4 }"#] {
+  for json in [#"{ "transparency": 0.5 }"#, #"{ "blurRadius": 4 }"#] {
     try withSettings(json) { file in
       try file.bind(nil, to: HotkeyTarget(target: "extension:window", item: "left"))
       #expect(try String(contentsOf: file.url, encoding: .utf8) == json)
@@ -700,31 +686,13 @@ func theSliderSavesEveryTransparencyExactly(value: Double) throws {
   }
 }
 
-@Test func sparseGlassEditsPreserveTheIntentOfOldTransparencyValues() throws {
-  try withSettings(#"{"backgroundTransparency":0.75}"#) { file in
-    try file.set("enabled", to: false, in: "voice")
+@Test func theCurvedSlidersOldValuesStayInTheFileButAreNotRead() throws {
+  try withSettings(#"{"backgroundTransparency":0.75,"blur":4}"#) { file in
+    #expect(try Configuration.load(at: file.url) == Configuration())
+    try file.set("transparency", to: 0.5)
     let object = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
-    #expect(object["backgroundTransparency"] == .number(0.75) && object["blur"] == .null)
-    #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.5)
-    try file.set("blur", to: 6)
-    #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.5)
-    try file.set("backgroundTransparency", to: 0.75)
-    #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.75)
-    try file.set("blur", to: Configuration().blur)
-    let reset = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
-    #expect(reset["blur"] == .null)
-    #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.75)
-    try file.set("backgroundTransparency", to: Configuration().backgroundTransparency)
-    let updated = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
-    #expect(updated == .object("voice", .object("enabled", .bool(false))))
-  }
-  try withSettings(#"{"backgroundTransparency":0.4,"blur":4}"#) { file in
-    try file.set("enabled", to: false, in: "voice")
-    #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.4)
-  }
-  try withSettings(#"{"backgroundTransparency":0.4}"#) { file in
-    try file.set("enabled", to: false, in: "voice")
-    #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.4)
+    #expect(object["backgroundTransparency"] == .number(0.75) && object["blur"] == .number(4))
+    #expect(try Configuration.load(at: file.url).transparency == 0.5)
   }
 }
 
@@ -826,7 +794,7 @@ func theSliderSavesEveryTransparencyExactly(value: Double) throws {
         try ConfigurationFile(url: alias).edit { object in
           secondEditing.signal()
           #expect(object["resultsOnlyWhenTyping"] as? Bool == true)
-          object["backgroundTransparency"] = 0.75
+          object["transparency"] = 0.75
         }
       } catch { Issue.record(error) }
     }
@@ -835,7 +803,7 @@ func theSliderSavesEveryTransparencyExactly(value: Double) throws {
     releaseFirst.signal()
     try #require(saves.wait(timeout: .now() + .seconds(5)) == .success)
     let updated = try Configuration.load(at: file.url)
-    #expect(updated.resultsOnlyWhenTyping && updated.backgroundTransparency == 0.75)
+    #expect(updated.resultsOnlyWhenTyping && updated.transparency == 0.75)
     #expect(try FileManager.default.destinationOfSymbolicLink(atPath: alias.path) == file.url.path)
   }
 }

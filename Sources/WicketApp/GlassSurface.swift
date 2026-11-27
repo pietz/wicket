@@ -8,7 +8,7 @@ struct GlassSurface: View {
   let role: GlassBlur.Role
   let radius: CGFloat
   let transparency: Double
-  let blur: Double
+  let blurRadius: Double
   var drawsGlass = true
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   @Environment(\.colorSchemeContrast) private var contrast
@@ -25,7 +25,7 @@ struct GlassSurface: View {
         if drawsGlass {
           let style = GlassBlur.style(transparency, dark: dark, increasedContrast: increasedContrast)
           let inputs = style.inputs.merging([
-            GlassBlur.radiusKey: GlassBlur.radius(blur, role: role)
+            GlassBlur.radiusKey: GlassBlur.radius(blurRadius, role: role)
           ]) { $1 }
           GlassSlab(radius: radius, tint: style.tint, inputs: inputs)
             // Recreate the slab when an input stops being patched, so AppKit supplies its own value again.
@@ -47,9 +47,9 @@ struct GlassSurface: View {
 /// Unfocused desktop widgets are clear glass with a dark tint and a saturation boost, not a fill under the
 /// glass: a fill darkens the backdrop before the glass blurs it, and the glass's own white face fill then
 /// lifts it to a flat grey. The widgets were measured on macOS 27.2 (mean colour over flat swatches,
-/// surviving contrast over a checkerboard) and the slider midpoints sit at or near them. Light mode keeps a
-/// light surface for dark text instead of copying the widgets, which darken the wallpaper and switch to
-/// white text.
+/// surviving contrast over a checkerboard) and the defaults sit at or near them. Light mode keeps a light
+/// surface for dark text instead of copying the widgets, which darken the wallpaper and switch to white
+/// text.
 ///
 /// No public API sets the blur strength or the saturation. Only `inputBlurRadius` sets the strength: the
 /// `inputBlurOpacity0…4` bands fade the blur in from the edge, and raising them keeps the centre sharp.
@@ -67,34 +67,29 @@ enum GlassBlur {
   /// 27.2), so the thin pill reads like the card. A constant, because the defaults AppKit writes into
   /// Wicket's panel are not the lab's (about 0.58 for both shapes) and say nothing about the setting.
   static let pillRatio = 0.56
+  /// About where a 70% tint leaves only soft colour; past it each step barely shows.
+  static let maxRadius = 5.0
 
-  /// The Blur slider's midpoint is the widgets' measured radius of 1, the same in light and dark.
-  static func radius(_ blur: Double, role: Role) -> Double {
-    let blur = min(10, max(0, blur))
-    let radius = blur <= 5 ? blur / 5 : 1 + (blur - 5) * 1.8
+  /// The Blur slider is the card's radius, the same in light and dark; the widgets' is 1.
+  static func radius(_ blurRadius: Double, role: Role) -> Double {
+    let radius = min(maxRadius, max(0, blurRadius))
     return radius * (role == .pill ? pillRatio : 1)
   }
 
-  /// The tint and the private face inputs for the Transparency slider. One midpoint serves both modes: near
-  /// the widgets' measured 68% tint, with enough tint that light mode's dark text stays clean over app
-  /// windows, and a gentler boost than the widgets' 2.4 so wallpapers don't look oversaturated. Dark also
-  /// pins the face's white and black points to a normal window's: in a floating panel of a background app
-  /// AppKit lifts them (white 1.08, black 0.125), which turns the dark glass grey.
+  /// The tint and the private face inputs for the Transparency slider, which is the share of the backdrop
+  /// the tint lets through. The default 70% tint is near the widgets' measured 68% and keeps light mode's
+  /// dark text clean over app windows. The boost is gentler than the widgets' 2.4 so wallpapers don't look
+  /// oversaturated. Dark also pins the face's white and black points to a normal window's: in a floating
+  /// panel of a background app AppKit lifts them (white 1.08, black 0.125), which turns the dark glass grey.
   static func style(_ transparency: Double, dark: Bool, increasedContrast: Bool)
     -> (tint: NSColor, inputs: [String: Double])
   {
-    let progress = 2 * min(1, max(0, transparency))
-    let midpointAlpha = 0.75
-    let alpha =
-      progress <= 1
-      ? midpointAlpha + (1 - midpointAlpha) * (1 - progress)
-      : midpointAlpha * (2 - progress)
+    let alpha = 1 - min(1, max(0, transparency))
     let white: CGFloat = dark ? 0 : 1
     let tint = NSColor(
       srgbRed: white, green: white, blue: white, alpha: increasedContrast ? max(alpha, 0.9) : alpha)
     if increasedContrast { return (tint, [:]) }
-    let midpointSaturation = 1.6
-    let saturation = 1 + (midpointSaturation - 1) * min(1, 2 - progress)
+    let saturation = 1.6
     return (
       tint, dark ? [saturationKey: saturation, whiteKey: 0.88, blackKey: 0.05] : [saturationKey: saturation]
     )

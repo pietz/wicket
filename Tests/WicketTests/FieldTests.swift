@@ -844,7 +844,7 @@ func aPromptedActionSubmitsItsOwnOperationAndHides(submit: Bool) async throws {
     .write(to: root.appending(path: "extensions/other/wicket.json"))
   await model.extensions.reload()
   #expect(model.extensions.commands["extension:other"]?.manifest.icon == "star")
-  model.store.update { $0.backgroundTransparency = 0.5 }
+  model.store.update { $0.transparency = 0.5 }
   model.store.update { $0.providers = [.init("extension:other", enabled: false)] }
   await model.navigator.settled()
   #expect(try requests().count == 1)

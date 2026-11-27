@@ -83,35 +83,14 @@ struct ConfigurationFile {
     let original = try JSONSerialization.jsonObject(with: data) as! [String: Any]
     var object = original
     try change(&object)
-    preserveTransparency(in: &object, before: original, effective: current.backgroundTransparency)
     let updated = try encode(object)
     guard updated != (try encode(original)) else { return (nil, current) }
     return (updated, try JSONDecoder().decode(Configuration.self, from: updated))
   }
 
-  private func preserveTransparency(in object: inout [String: Any], before: [String: Any], effective: Double)
-  {
-    let key = Configuration.transparencyIntentKey
-    let stored = object["backgroundTransparency"] as? Double
-    let previous = before["backgroundTransparency"] as? Double
-    let blur = object["blur"] as? NSNumber
-    guard
-      stored != previous || blur != before["blur"] as? NSNumber
-        || (object[key] as? Bool) != (before[key] as? Bool)
-    else { return }
-    guard let stored, Configuration.oldDefaultTransparencies.contains(stored) else {
-      object[key] = nil
-      return
-    }
-    // An unrelated blur change must keep how an old transparency reads. Record intent only when
-    // the presence or absence of blur would otherwise change that reading.
-    let explicit = (object[key] as? Bool) ?? (stored != previous || stored == effective)
-    object[key] = explicit == (blur != nil) ? nil : explicit
-  }
-
   private func encode(_ values: [String: Any]) throws -> Data {
     var object = values
-    for key in ["backgroundTransparency", "blur"] {
+    for key in ["transparency", "blurRadius"] {
       if let number = object[key] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
         object[key] = NSDecimalNumber(string: String(number.doubleValue))
       }
@@ -142,11 +121,6 @@ struct ConfigurationFile {
       } else {
         object[key] = replacement
         if key == "resultsOnlyWhenTyping" { object["compactOnOpen"] = nil }
-        if key == "backgroundTransparency", let value = replacement as? Double,
-          Configuration.oldDefaultTransparencies.contains(value)
-        {
-          object[Configuration.transparencyIntentKey] = true
-        }
       }
     }
   }

@@ -52,15 +52,15 @@ func removeHeadlessScratch(_ root: URL) {
   #expect(defaultsStatus == 0)
   #expect(defaults["hotkey"] == .string(Shortcut.default.description))
   #expect(defaults["voice"]["enabled"] == .bool(true))
-  #expect(defaults["backgroundTransparency"] == .number(0.5))
-  #expect(defaults["blur"] == .number(5))
+  #expect(defaults["transparency"] == .number(0.3))
+  #expect(defaults["blurRadius"] == .number(1))
   #expect(defaults["extensions"]["status"]["limit"] == .string("5"))
   #expect(!FileManager.default.fileExists(atPath: file.path))
 
   let saved = Data(
     """
     {"agent":{"name":"codex"},"providers":[{"id":"files","enabled":false}],
-    "backgroundTransparency":0.75,"blur":4}
+    "transparency":0.5,"blurRadius":2.5}
     """.utf8)
   try saved.write(to: file)
   try AgentDiscovery.save([AgentModel(id: "gpt-6.2-terra")], agent: .codex, in: root)
@@ -68,8 +68,8 @@ func removeHeadlessScratch(_ root: URL) {
   #expect(status == 0)
   #expect(settings["agent"]["model"] == .string("gpt-6.2-terra"))
   #expect(settings["agent"]["mode"] == .string("agent"))
-  #expect(settings["backgroundTransparency"] == .number(0.75))
-  #expect(settings["blur"] == .number(4))
+  #expect(settings["transparency"] == .number(0.5))
+  #expect(settings["blurRadius"] == .number(2.5))
   let sources = settings["providers"].array
   #expect(sources.contains(.object("id", .string("files"), "enabled", .bool(false))))
   #expect(sources.contains(.object("id", .string("extension:status"), "enabled", .bool(true))))

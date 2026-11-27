@@ -8,35 +8,29 @@ import Testing
 
 @Test func glassSettingsDefaultsAndDecoding() throws {
   let defaults = try JSONDecoder().decode(Configuration.self, from: Data("{}".utf8))
-  #expect(defaults.appearance == .system && defaults.backgroundTransparency == 0.5 && defaults.blur == 5)
+  #expect(defaults.appearance == .system && defaults.transparency == 0.3 && defaults.blurRadius == 1)
   let set = try JSONDecoder().decode(
-    Configuration.self, from: Data(#"{"appearance":"dark","backgroundTransparency":1,"blur":0}"#.utf8))
-  #expect(set.appearance == .dark && set.backgroundTransparency == 1 && set.blur == 0)
+    Configuration.self, from: Data(#"{"appearance":"dark","transparency":1,"blurRadius":0}"#.utf8))
+  #expect(set.appearance == .dark && set.transparency == 1 && set.blurRadius == 0)
   #expect(Configuration.Appearance.light.nsAppearance?.name == .aqua)
   #expect(Configuration.Appearance.system.nsAppearance == nil)
 }
 
-@Test func blurMapsTheSliderMidpointToWidgetBlurAndScalesThePill() {
-  for (blur, radius) in [(0.0, 0.0), (2.5, 0.5), (5, 1), (7.5, 5.5), (10, 10), (-2, 0)] {
+@Test func blurIsTheCardRadiusAndScalesThePill() {
+  for (blur, radius) in [(0.0, 0.0), (1, 1), (2.5, 2.5), (5, 5), (7, 5), (-2, 0)] {
     #expect(abs(GlassBlur.radius(blur, role: .card) - radius) < 0.000_001)
   }
-  #expect(abs(GlassBlur.radius(5, role: .pill) - 0.56) < 0.000_001)
+  #expect(abs(GlassBlur.radius(1, role: .pill) - 0.56) < 0.000_001)
 }
 
 @Test(arguments: [true, false]) func glassTintAndSaturationFollowTransparency(dark: Bool) {
   let white: CGFloat = dark ? 0 : 1
-  let samples: [(transparency: Double, alpha: Double, saturation: Double)] = [
-    (0, 1, 1.6),
-    (0.25, 0.875, 1.6),
-    (0.5, 0.75, 1.6),
-    (0.75, 0.375, 1.3),
-    (1, 0, 1),
-  ]
+  let samples: [(transparency: Double, alpha: Double)] = [(0, 1), (0.3, 0.7), (0.5, 0.5), (1, 0), (1.5, 0)]
   for sample in samples {
     let (tint, inputs) = GlassBlur.style(sample.transparency, dark: dark, increasedContrast: false)
     #expect(tint.redComponent == white && tint.greenComponent == white && tint.blueComponent == white)
     #expect(abs(tint.alphaComponent - sample.alpha) < 0.000_001)
-    #expect(GlassBlur.matches(inputs[GlassBlur.saturationKey], sample.saturation))
+    #expect(GlassBlur.matches(inputs[GlassBlur.saturationKey], 1.6))
     // Dark pins the face's white and black points that a background app's panel would lift.
     #expect(
       inputs[GlassBlur.whiteKey] == (dark ? 0.88 : nil) && inputs[GlassBlur.blackKey] == (dark ? 0.05 : nil))

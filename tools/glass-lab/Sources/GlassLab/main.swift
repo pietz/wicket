@@ -13,7 +13,7 @@ struct Look: Identifiable {
   var pillClear = false
   var cardClear = false
   var tint = 0.2
-  var transparency = 0.5
+  var transparency = 0.3
   var rim = Rim.none
   var backing = 0.0
   var lightInk = false
@@ -34,7 +34,7 @@ let looks: [Look] = [
   @Published var appearance = 1  // 0 system, 1 light, 2 dark
   @Published var amount: [Int: Double] = [:]  // ←/→ per look: transparency, tint, or backing
   @Published var joined: Set<Int> = []  // ⌘J flips one piece per look
-  @Published var radius: Double = 5  // ⇧←/→: Blur slider, 0–10
+  @Published var radius: Double = 1  // ⇧←/→: Blur slider, 0–5 in steps of 0.5
   @Published var matchBar = true  // ⌘M: scale the bar's blur like the system does (bar default 5.6 vs card 10)
   var look: Look {
     var l = looks[selection]
@@ -291,7 +291,7 @@ struct LabView: View {
           Divider().opacity(0.6)
           HStack {
             Text(lab.look.blur || lab.look.native == 1
-              ? "↑↓ look · ←→ \(lab.amountLabel) · ⇧←→ blur \(Int(lab.radius)) · ⌘M bar \(lab.matchBar ? "matched" : "same") · ⌘D \(lab.appearanceName) · ⌘Q"
+              ? "↑↓ look · ←→ \(lab.amountLabel) · ⇧←→ blur \(lab.radius.formatted()) · ⌘M bar \(lab.matchBar ? "matched" : "same") · ⌘D \(lab.appearanceName) · ⌘Q"
               : "↑↓ look · ←→ \(lab.amountLabel) · ⌘D \(lab.appearanceName) · ⌘Q")
             Spacer()
             Text("\(lab.selection + 1)/\(looks.count)")
@@ -331,7 +331,7 @@ struct LabView: View {
     if look.native == 1 {
       GlassSurface(
         role: card || !lab.matchBar ? .card : .pill, radius: radius, transparency: look.transparency,
-        blur: lab.radius)
+        blurRadius: lab.radius)
     } else if reduceTransparency {
       shape.fill(Color(nsColor: .windowBackgroundColor))
     } else {
@@ -410,8 +410,8 @@ final class LabWindow: NSWindow {
       switch (event.keyCode, cmd, event.charactersIgnoringModifiers) {
       case (125, false, _): self.lab.selection = min(looks.count - 1, self.lab.selection + 1); return nil
       case (126, false, _): self.lab.selection = max(0, self.lab.selection - 1); return nil
-      case (123, false, _) where event.modifierFlags.contains(.shift): self.lab.radius = max(0, self.lab.radius - 1); return nil
-      case (124, false, _) where event.modifierFlags.contains(.shift): self.lab.radius = min(10, self.lab.radius + 1); return nil
+      case (123, false, _) where event.modifierFlags.contains(.shift): self.lab.radius = max(0, self.lab.radius - 0.5); return nil
+      case (124, false, _) where event.modifierFlags.contains(.shift): self.lab.radius = min(5, self.lab.radius + 0.5); return nil
       case (123, false, _): self.lab.nudge(self.lab.look.backing > 0 ? 0.05 : -0.05); return nil
       case (124, false, _): self.lab.nudge(self.lab.look.backing > 0 ? -0.05 : 0.05); return nil
       case (_, true, "d"): self.cycleAppearance(); return nil
