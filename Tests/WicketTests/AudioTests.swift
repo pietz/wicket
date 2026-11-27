@@ -269,21 +269,23 @@ private func captureSample(_ input: AVAudioPCMBuffer) throws -> CMSampleBuffer {
   }
   let before = try captureSample(input)
   let after = try captureSample(try audio(2, rate: 32000))
-  let counts = Mutex((audio: 0, first: 0))
+  let samples = Mutex([Int16]())
+  let first = Mutex(0)
   let receiver = AudioSamples(
     format: output, deviceName: "Test input",
     audio: { result in
       #expect(result.format == output)
-      counts.withLock {
-        let expected = $0.audio == 0 ? 8000 : 24576
-        #expect(result.frameLength > 500 && abs(Int(result.int16ChannelData![0][500]) - expected) <= 1)
-        $0.audio += 1
-      }
+      let data = result.int16ChannelData![0]
+      samples.withLock { $0.append(contentsOf: (0..<Int(result.frameLength)).map { data[$0] }) }
     },
-    firstAudio: { counts.withLock { $0.first += 1 } },
+    firstAudio: { first.withLock { $0 += 1 } },
     fail: { Issue.record("Audio failed: \(VoiceLog.describe($0))") })
   for packet in [before, after, after] { receiver.receive(packet) }
-  #expect(counts.withLock { $0 } == (3, 1))
+  // All 2,400 output frames of the integer buffer arrive, including the tail the resampler held back.
+  let values = samples.withLock { $0 }
+  #expect(values.count(where: { abs(Int($0) - 8000) <= 1 }) >= 2380)
+  #expect(values.count(where: { abs(Int($0) - 24576) <= 1 }) > 4000)
+  #expect(first.withLock { $0 } == 1)
   #expect(receiver.captured.buffers == 3 && receiver.captured.formatChanges == 1)
 }
 
@@ -302,7 +304,7 @@ func digitalSilenceKeepsDeliveringUntilSignalArrives(_ analyzerFormat: AVAudioCo
   for _ in 0..<20 { receiver.receive(packet) }
   #expect(delivered.withLock { $0 } == 20)
   #expect(receiver.captured.silentDevice == "Dock")
-  input.floatChannelData![0][0] = 0.000001
+  input.floatChannelData![0][0] = 0.001  // A quiet room's noise floor, well above one 16-bit step.
   receiver.receive(try captureSample(input))
   receiver.receive(packet)
   #expect(delivered.withLock { $0 } == 22)

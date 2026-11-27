@@ -533,12 +533,19 @@ final class AudioSamples: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate
       buffer.frameLength = buffer.frameCapacity
       try sampleBuffer.copyPCMData(
         fromRange: 0..<sampleBuffer.numSamples, into: buffer.mutableAudioBufferList)
-      if checkSignal, Self.hasSignal(buffer) {
-        summary.withLock { $0.silentDevice = nil }
+      // Check what the analyzer receives, where digital silence is always zero.
+      let deliver = { [self] (converted: AVAudioPCMBuffer) in
+        if checkSignal, Self.hasSignal(converted) { summary.withLock { $0.silentDevice = nil } }
+        audio(converted)
+        firstAudio?()
+        firstAudio = nil
       }
       // At startup the capture session can deliver the physical integer format before correcting to Float32.
       if conversion?.source != source {
-        if conversion != nil {
+        if let previous = conversion {
+          // The resampler still holds the old format's tail; release it before replacing the converter.
+          stage = .convert
+          try previous.finish(deliver: deliver)
           summary.withLock { $0.formatChanges += 1 }
           VoiceLog.logger.log(
             "voice \(self.attempt, privacy: .public) format changed at buffer \(index, privacy: .public): \(Self.describe(stream), privacy: .public)"
@@ -547,11 +554,7 @@ final class AudioSamples: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate
         conversion = try Conversion(input: source, output: format)
       }
       stage = .convert
-      try conversion?.convert(buffer) { converted in
-        audio(converted)
-        firstAudio?()
-        firstAudio = nil
-      }
+      try conversion?.convert(buffer, deliver: deliver)
     } catch {
       failed = true
       let failure = (error as? Conversion.Stage) ?? stage
@@ -654,16 +657,32 @@ final class Conversion {
     let capacity = AVAudioFrameCount((Double(input.frameLength) * ratio).rounded(.up)) + 1
     // The converter calls the input block synchronously. Offer the packet once across all drains.
     nonisolated(unsafe) var pending: AVAudioPCMBuffer? = input
+    try Self.drain(converter, capacity: capacity, deliver: deliver) { status in
+      let packet = pending
+      pending = nil
+      status.pointee = packet == nil ? .noDataNow : .haveData
+      return packet
+    }
+  }
+
+  /// Ends the stream so the resampler releases the frames it still holds.
+  func finish(deliver: (AVAudioPCMBuffer) -> Void) throws {
+    guard let converter else { return }
+    try Self.drain(converter, capacity: 1024, deliver: deliver) { status in
+      status.pointee = .endOfStream
+      return nil
+    }
+  }
+
+  private static func drain(
+    _ converter: AVAudioConverter, capacity: AVAudioFrameCount, deliver: (AVAudioPCMBuffer) -> Void,
+    input: @escaping (UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioPCMBuffer?
+  ) throws {
     var status: AVAudioConverterOutputStatus
     repeat {
-      let output = try Self.allocate(format, frames: capacity)
+      let output = try allocate(converter.outputFormat, frames: capacity)
       var error: NSError?
-      status = converter.convert(to: output, error: &error) { _, status in
-        let packet = pending
-        pending = nil
-        status.pointee = packet == nil ? .noDataNow : .haveData
-        return packet
-      }
+      status = converter.convert(to: output, error: &error) { _, status in input(status) }
       if status == .error { throw (error as (any Error)?) ?? Stage.convert }
       if output.frameLength > 0 { deliver(output) }
     } while status == .haveData
