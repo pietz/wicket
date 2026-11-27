@@ -344,29 +344,31 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   try requests(in: root.appending(path: "extensions/" + name))
 }
 
-@MainActor @Test func aSlowListShowsRunningAtTheDeadlineThenItsOutputInOneStep() async throws {
+@MainActor @Test(arguments: [false, true])
+func aProgramListSwitchesContentAndHeightTogether(passesDeadline: Bool) async throws {
   let (model, _, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }
   let trace = Trace(model)
-  model.navigator.arrivalDeadline = .milliseconds(30)
+  model.navigator.arrivalDeadline = passesDeadline ? .milliseconds(30) : .seconds(60)
   model.navigator.go(Address(id: "slow"), submitted: true)
   // Recorded as it is: starting the request draws the root once more, unchanged.
   let rootFrame = try #require(trace.frames.first)
   #expect(trace.frames.count == 1 && rootFrame.screen == "root" && rootFrame.input == "a")
   #expect(rootFrame.rows.count == 13 && rootFrame.selection == "App 0" && rootFrame.height == full)
-  #expect(await eventually { model.navigator.command != nil })
-  #expect(
-    trace.frames == [
-      rootFrame, .init(screen: "extension:slow", input: "", rows: [], busy: true, height: one),
-    ])
+  #expect(model.navigator.command == nil && model.navigator.sizedRows == 8)
+  var expected = [rootFrame]
+  if passesDeadline {
+    #expect(await eventually { model.navigator.command != nil })
+    expected.append(.init(screen: "extension:slow", input: "", rows: [], busy: true, height: one))
+    #expect(trace.frames == expected)
+  }
   try release(root)
   await model.navigator.settled()
-  #expect(
-    trace.frames.last
-      == .init(
-        screen: "extension:slow", input: "", rows: ["Finished"], selection: "Finished", busy: false,
-        height: one))
-  #expect(trace.screens == ["root", "extension:slow"])
+  expected.append(
+    .init(
+      screen: "extension:slow", input: "", rows: ["Finished"], selection: "Finished", busy: false,
+      height: one))
+  #expect(trace.frames == expected)
   let sent = try logged(root)
   #expect(sent.count == 1 && sent[0].submitted && sent[0].input.isEmpty)
   await model.finish()
@@ -378,7 +380,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let trace = Trace(model)
   model.navigator.arrivalDeadline = .seconds(60)
   var measuring: CheckedContinuation<Void, Never>?
-  trace.surface.onPrepare = { _, _ in
+  trace.surface.onPrepare = { page, _ in
+    #expect(page.source == "# First page" && model.navigator.body == nil)
     await withCheckedContinuation { measuring = $0 }
     return .unmeasured
   }
@@ -475,7 +478,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.finish()
 }
 
-@MainActor @Test func aSecondEscapeWhileGoingBackWaitsForTheRoot() async throws {
+@MainActor @Test(arguments: [false, true])
+func goingBackShowsTheRootAtItsOwnHeight(secondEscape: Bool) async throws {
   let (model, apps, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }
   model.navigator.go(Address(id: "notes"), submitted: true)
@@ -483,7 +487,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let trace = Trace(model)
   apps.held = true
   #expect(model.navigator.escape())
-  #expect(model.navigator.escape())
+  if secondEscape { #expect(model.navigator.escape()) }
   // Still the command, exactly as it was, and nothing was drawn.
   #expect(
     model.navigator.command?.id == "extension:notes"
@@ -587,7 +591,9 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   // An addition to the old input is what is typed into the new one.
   model.navigator.go(Address(id: "slow", input: "x"), submitted: true)
   model.navigator.editInput("ab")
-  #expect(model.navigator.command?.id == "extension:slow" && model.navigator.input == "xb")
+  #expect(
+    model.navigator.command?.id == "extension:slow" && model.navigator.input == "xb"
+      && model.navigator.sizedRows == 1)
   // The entry's request is called off before it started, and the appended input runs once as typing.
   #expect(await eventually { (try? logged(root).count) == 1 })
   #expect(try logged(root).map { [$0.input, "\($0.submitted)"] } == [["xb", "false"]])
@@ -1149,6 +1155,8 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
     let (model, _, root) = try await transitions(answer: answer)
     defer { try? FileManager.default.removeItem(at: root) }
     model.navigator.arrivalDeadline = .seconds(60)
+    let surface = RecordingSurface()
+    model.navigator.surface = surface
     model.navigator.go(Address(id: "slow"), submitted: true)
     #expect(await eventually { (try? logged(root).count) == 1 })
     #expect(model.navigator.escape())
@@ -1156,7 +1164,7 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
     try await Task.sleep(for: .milliseconds(200))
     #expect(
       model.navigator.command == nil && model.navigator.input == "a"
-        && model.navigator.results.count > 8)
+        && model.navigator.results.count > 8 && surface.effects.isEmpty)
     await model.finish()
   }
 }
