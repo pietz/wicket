@@ -6,6 +6,32 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.9.4</title>
+      <pubDate>Fri, 27 Nov 2026 13:50:07 +0000</pubDate>
+      <sparkle:version>55</sparkle:version>
+      <sparkle:shortVersionString>0.9.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Charts that look at home
+
+- **Native colours.** Charts start with your macOS accent colour and continue with Apple's system colours, skipping the one closest to your accent so no two series look alike. They follow light and dark mode.
+- **No more empty space under bar charts.** Bar and share charts are as tall as their rows (up to a limit, then they scroll), and a long chart no longer clips its title.
+- **Shorter answers.** The agent answers what you asked and offers related facts as a row instead of adding them to the answer.
+
+## Icons for extensions and Quicklinks
+
+- **Quicklinks shows each site's icon.** The first time you open a link or search, Wicket fetches that site's favicon from the site itself and uses it from then on; until then you see a globe.
+- **Extensions can use their own images.** An extension's `icon` can now be a PNG or SVG file in its folder as well as an SF Symbol.
+
+## Also
+
+- **Convert understands spelled-out units:** `5 km in miles`, `10 pounds in kg`, `20 celsius in fahrenheit`.
+- Calculator and Convert format large numbers with your region's digit grouping, including lakh-style grouping.
+- Voice records a little more detail in the system log, still only formats and timings, so microphone problems are quicker to diagnose.
+- Fixes: an agent error message containing non-English characters could come out garbled.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.9.4</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.9.4/Wicket-0.9.4.dmg" type="application/octet-stream" sparkle:edSignature="RvMRt2VHRNH7trQfQwpHpNKkPDLIyowRLprO5xRbPGWablLYPzRzovRZr2m1Shosovu6t8xOgwuNeEW90o7QDQ==" length="4815678"/>
+    </item>
+    <item>
       <title>Wicket 0.9.3</title>
       <pubDate>Fri, 27 Nov 2026 09:55:22 +0000</pubDate>
       <sparkle:version>54</sparkle:version>
