@@ -39,7 +39,7 @@ import Testing
   #expect(controller.panel.frame.height == searchOnlyHeight)
   #expect(controller.presentation.pillStatus == "Starting voice…")
   let hiddenResultsFeed = try #require(voice.feeds.last)
-  hiddenResultsFeed.yield(.ready)
+  hiddenResultsFeed.yield(.audio(.now))
   #expect(await eventually { controller.presentation.pillStatus == "Listening…" })
   #expect(controller.panel.frame.height == searchOnlyHeight)
   hiddenResultsFeed.yield(.transcript("App"))

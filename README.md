@@ -60,7 +60,7 @@ In Settings ▸ Extensions ▸ Windows, set the gap or add a saved move with an 
 
 ## Voice
 
-**Listen when Wicket opens** is on by default in Settings ▸ Voice (`voice.enabled` in `config.json`). Click the microphone to dictate whenever the screen accepts speech, even with automatic listening off. Wicket fills the search field without submitting. Any key takes over, and 3 seconds of silence at the start stops capture. Transcription is Apple on-device speech with no audio saved. If the default mic is Bluetooth, Wicket uses another hardware mic for automatic listening when available to preserve playback quality. If Bluetooth is the only option, click the mic to start.
+**Listen when Wicket opens** is on by default in Settings ▸ Voice (`voice.enabled` in `config.json`). Click the microphone to dictate whenever the screen accepts speech, even with automatic listening off. Wicket fills the search field without submitting. Any key takes over. If Wicket detects no speech within 3 seconds of audio reaching the speech analyzer, it stops listening. If the input sent only digital silence, Wicket shows a “No sound” hint. Transcription is Apple on-device speech with no audio saved. If the default mic is Bluetooth, Wicket uses another hardware mic for automatic listening when available to preserve playback quality. If Bluetooth is the only option, click the mic to start.
 
 ## The agent
 

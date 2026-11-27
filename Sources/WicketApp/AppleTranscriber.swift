@@ -10,9 +10,9 @@ import Synchronization
   private var task: Task<Void, Never>?
   private var microphone: Microphone?
   private(set) var shutdown: AsyncStream<Never>?
-  func start(allowBluetooth: Bool) -> AsyncThrowingStream<VoiceUpdate, any Error> {
+  func start(allowBluetooth: Bool, attempt: Int) -> AsyncThrowingStream<VoiceUpdate, any Error> {
     stop()
-    let capture = Microphone()
+    let capture = Microphone(attempt: attempt)
     microphone = capture
     return AsyncThrowingStream { continuation in
       let worker = Task.detached(priority: .userInitiated) {
@@ -28,11 +28,13 @@ import Synchronization
       continuation.onTermination = { _ in Task.detached { worker.cancel() } }
     }
   }
-  func stop() {
-    if let microphone { shutdown = microphone.stop() }
+  @discardableResult func stop() -> VoiceCapture {
+    let capture = microphone
+    if let capture { shutdown = capture.stop() }
     microphone = nil
     task?.cancel()
     task = nil
+    return capture?.captured ?? .init()
   }
   nonisolated static func validateUsage(_ info: [String: Any]) throws {
     guard let text = info["NSMicrophoneUsageDescription"] as? String, !text.isEmpty else {
@@ -77,14 +79,13 @@ import Synchronization
       modules: [transcriber], options: .init(priority: .userInitiated, modelRetention: .lingering))
     try await withTaskCancellationHandler {
       try Task.checkCancellation()
-      // Audio buffers from here on wait in `inputs` until the analyzer reads them: the first word counts.
       yield(.openingMicrophone(.now))
+      try await analyzer.start(inputSequence: inputs)
+      try Task.checkCancellation()
       try await microphone.start(
         allowBluetooth: allowBluetooth, format: format, audio: { feed.yield(AnalyzerInput(buffer: $0)) },
         firstAudio: { yield(.audio(.now)) }, fail: fail)
       try Task.checkCancellation()
-      yield(.ready)
-      try await analyzer.start(inputSequence: inputs)
       var transcript = Transcript(locale: locale)
       for try await result in transcriber.results {
         try Task.checkCancellation()
@@ -103,18 +104,20 @@ import Synchronization
 final class Microphone: @unchecked Sendable {
   private static let hardwareOpen = DispatchSemaphore(value: 1)
   private let openSlot: DispatchSemaphore
+  private let attempt: Int
   private let queue = DispatchQueue(label: "app.wicket.capture", qos: .userInitiated)
   private var session: (any CaptureSession)?
-  private var samples: AudioSamples?
+  private let samples = Mutex<AudioSamples?>(nil)
   private var observers: [any NSObjectProtocol] = []
   private let stopped = Atomic(false)
-  private let opened = ContinuousClock.now
 
-  init(openSlot: DispatchSemaphore = Microphone.hardwareOpen) {
+  init(openSlot: DispatchSemaphore = Microphone.hardwareOpen, attempt: Int = 0) {
     self.openSlot = openSlot
+    self.attempt = attempt
   }
 
   private var isStopped: Bool { stopped.load(ordering: .relaxed) }
+  var captured: VoiceCapture { samples.withLock { $0?.captured ?? .init() } }
 
   func open<Device>(
     selecting select: @escaping @Sendable () throws -> Device,
@@ -171,9 +174,6 @@ final class Microphone: @unchecked Sendable {
   func captureEnded(error: NSError? = nil, fail: @escaping @Sendable (any Error) -> Void) {
     queue.async { [self] in
       guard !isStopped else { return }
-      VoiceLog.logger.log(
-        "voice input stopped by a configuration change \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after opening"
-      )
       if let error {
         fail(VoiceSystemError(category: .inputChanged, domain: error.domain, code: error.code))
       } else {
@@ -188,7 +188,10 @@ final class Microphone: @unchecked Sendable {
     firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (any Error) -> Void
   ) async throws {
     // An explicit device input avoids AVAudioEngine binding its default input and switching it back.
-    let select = { @Sendable in try InputDevice.select(allowBluetooth: allowBluetooth) }
+    let opened = ContinuousClock.now
+    let select = { @Sendable [attempt] in
+      try InputDevice.select(allowBluetooth: allowBluetooth, attempt: attempt)
+    }
     try await open(selecting: select) { [self] device in
       let capture = AVCaptureSession()
       let input = try AVCaptureDeviceInput(device: device)
@@ -200,11 +203,12 @@ final class Microphone: @unchecked Sendable {
       guard capture.canAddOutput(output) else { throw VoiceError.microphoneStartFailed }
       capture.addOutput(output)
       let samples = AudioSamples(
-        format: format, deviceName: device.localizedName, audio: audio, firstAudio: firstAudio, fail: fail)
+        format: format, deviceName: device.localizedName, attempt: attempt, opened: opened,
+        audio: audio, firstAudio: firstAudio, fail: fail)
       // Session startup and teardown can wait for delivery to drain.
       output.setSampleBufferDelegate(
         samples, queue: DispatchQueue(label: "app.wicket.audio", qos: .userInitiated))
-      self.samples = samples
+      self.samples.withLock { $0 = samples }
       observers = [
         observe(AVCaptureSession.didStopRunningNotification, object: capture, fail: fail),
         observe(AVCaptureSession.runtimeErrorNotification, object: capture, fail: fail),
@@ -230,7 +234,6 @@ final class Microphone: @unchecked Sendable {
     session?.stopRunning()
     session?.detach()
     session = nil
-    samples = nil
   }
 }
 
@@ -282,17 +285,20 @@ enum InputDevice {
     }
   }
 
-  static func select(allowBluetooth: Bool) throws -> AVCaptureDevice {
-    let selected = try select(
+  static func select(allowBluetooth: Bool, attempt: Int) throws -> AVCaptureDevice {
+    try select(
       current: AVCaptureDevice.default(for: .audio), allowBluetooth: allowBluetooth,
       clamshellClosed: isClamshellClosed(),
       discover: { AVCaptureDevice.DiscoverySession(deviceTypes: $0, mediaType: $1, position: $2).devices },
-      describe: describe)
-    let bytes = withUnsafeBytes(of: selected.transport.bigEndian) { Array($0) }
-    let category =
+      describe: describe, attempt: attempt
+    ).device
+  }
+
+  private static func transportName(_ transport: UInt32?) -> String {
+    guard let transport else { return "none" }
+    return withUnsafeBytes(of: transport.bigEndian) { bytes in
       bytes.allSatisfy { (32...126).contains($0) } ? String(decoding: bytes, as: UTF8.self) : "unknown"
-    VoiceLog.logger.log("voice input transport: \(category, privacy: .public)")
-    return selected.device
+    }
   }
 
   private static func isClamshellClosed() -> Bool {
@@ -306,21 +312,33 @@ enum InputDevice {
   static func select<Device>(
     current: Device?, allowBluetooth: Bool, clamshellClosed: Bool = false,
     discover: ([AVCaptureDevice.DeviceType], AVMediaType, AVCaptureDevice.Position) -> [Device],
-    describe: (Device) -> Description
+    describe: (Device) -> Description, attempt: Int? = nil
   ) throws -> (device: Device, transport: UInt32) {
-    guard let current else { throw VoiceError.noMicrophone }
-    let currentInfo = describe(current)
+    let currentInfo = current.map(describe)
+    var selection: (transport: UInt32, reason: String)?
+    defer {
+      if let attempt {
+        VoiceLog.logger.log(
+          "voice \(attempt, privacy: .public) input: lid closed \(clamshellClosed, privacy: .public), default \(transportName(currentInfo?.transport), privacy: .public), selected \(transportName(selection?.transport), privacy: .public), substitution \(selection?.reason ?? "none", privacy: .public)"
+        )
+      }
+    }
+    func use(_ device: Device, _ info: Description, reason: String = "none") -> (Device, UInt32) {
+      selection = (info.transport, reason)
+      return (device, info.transport)
+    }
+    guard let current, let currentInfo else { throw VoiceError.noMicrophone }
     // macOS can still report the internal mic after the lid disconnects it in hardware.
     let mutedByLid = clamshellClosed && currentInfo.isInternalMicrophone
     // Clicking the mic lets the user pick an input in Sound settings even when other devices are listed.
-    if allowBluetooth && !mutedByLid { return (current, currentInfo.transport) }
+    if allowBluetooth && !mutedByLid { return use(current, currentInfo) }
     // An aggregate or unidentified default may route a Bluetooth mic, so a verified mic wins over it.
     let unverified =
       !currentInfo.usesContinuity
       && (isAggregateTransport(currentInfo.transport)
         || currentInfo.transport == kAudioDeviceTransportTypeUnknown)
     guard currentInfo.usesBluetooth || unverified || mutedByLid else {
-      return (current, currentInfo.transport)
+      return use(current, currentInfo)
     }
     let candidates = discover([.microphone, .external], .audio, .unspecified)
       .map { (device: $0, info: describe($0)) }
@@ -329,17 +347,18 @@ enum InputDevice {
       ?? candidates.first(where: { $0.info.transport == kAudioDeviceTransportTypeUSB })
       ?? candidates.first(where: { !$0.info.usesBluetooth && isNonBluetoothHardware($0.info.transport) })
     {
-      return (replacement.device, replacement.info.transport)
+      let reason = mutedByLid ? "lid" : currentInfo.usesBluetooth ? "bluetooth" : "unverified"
+      return use(replacement.device, replacement.info, reason: reason)
     }
     if mutedByLid {
       guard let headset = candidates.first(where: { $0.info.usesBluetooth }) else {
         throw VoiceError.lidClosed
       }
       guard allowBluetooth else { throw VoiceError.bluetoothOnly }
-      return (headset.device, headset.info.transport)
+      return use(headset.device, headset.info, reason: "lid")
     }
     guard !currentInfo.usesBluetooth else { throw VoiceError.bluetoothOnly }
-    return (current, currentInfo.transport)
+    return use(current, currentInfo)
   }
 
   private static func isNonBluetoothHardware(_ transport: UInt32) -> Bool {
@@ -451,28 +470,33 @@ enum InputDevice {
   }
 }
 
-/// All sample delivery and conversion run in order on the output's delegate queue.
-final class AudioSamples: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
+/// Delivery and conversion stay on the delegate queue. Only the capture summary crosses queues.
+final class AudioSamples: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
   private let format: AVAudioFormat
-  private let deviceName: String
+  private let attempt: Int
+  private let opened: ContinuousClock.Instant
   private let audio: @Sendable (AVAudioPCMBuffer) -> Void
-  private let firstAudio: @Sendable () -> Void
+  private var firstAudio: (@Sendable () -> Void)?
   private let fail: @Sendable (any Error) -> Void
+  private let summary: Mutex<VoiceCapture>
   private var conversion: Conversion?
-  private var probeSeconds: Double? = 0
-  private var signalFrames = 0
   private var failed = false
 
   init(
-    format: AVAudioFormat, deviceName: String, audio: @escaping @Sendable (AVAudioPCMBuffer) -> Void,
+    format: AVAudioFormat, deviceName: String, attempt: Int = 0, opened: ContinuousClock.Instant = .now,
+    audio: @escaping @Sendable (AVAudioPCMBuffer) -> Void,
     firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (any Error) -> Void
   ) {
     self.format = format
-    self.deviceName = deviceName
+    self.attempt = attempt
+    self.opened = opened
     self.audio = audio
     self.firstAudio = firstAudio
     self.fail = fail
+    summary = Mutex(.init(silentDevice: deviceName))
   }
+
+  var captured: VoiceCapture { summary.withLock { $0 } }
 
   func captureOutput(
     _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection
@@ -481,56 +505,61 @@ final class AudioSamples: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate
   }
 
   func receive(_ sampleBuffer: CMSampleBuffer) {
-    guard !failed else { return }
+    let (index, checkSignal) = summary.withLock {
+      $0.buffers += 1
+      return ($0.buffers, $0.silentDevice != nil)
+    }
+    let description = sampleBuffer.formatDescription?.audioStreamBasicDescription
+    if index == 1 {
+      VoiceLog.logger.log(
+        "voice \(self.attempt, privacy: .public) first buffer: \(Self.describe(description), privacy: .public), \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after open"
+      )
+    }
+    guard !failed, sampleBuffer.numSamples > 0 else { return }
+    var stage = Conversion.Stage.copy
     do {
-      guard sampleBuffer.numSamples > 0 else { return }
-      guard let description = sampleBuffer.formatDescription?.audioStreamBasicDescription,
-        description.mFormatID == kAudioFormatLinearPCM
-      else { throw VoiceError.conversionFailed }
-      // Voice treats all channels equally. Keep their byte layout and ignore device-specific speaker labels.
-      var stream = description
+      guard var stream = description else { throw Conversion.Stage.nonPCM }
+      guard stream.mSampleRate > 0, stream.mChannelsPerFrame > 0 else { return }
+      guard stream.mFormatID == kAudioFormatLinearPCM else { throw Conversion.Stage.nonPCM }
+      // Channel order is all that matters for averaging discrete multichannel PCM.
       let layout =
         stream.mChannelsPerFrame > 2
         ? AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | stream.mChannelsPerFrame)
         : nil
       guard let source = AVAudioFormat(streamDescription: &stream, channelLayout: layout) else {
-        throw VoiceError.conversionFailed
+        throw Conversion.Stage.format
       }
       let buffer = try Conversion.allocate(source, frames: AVAudioFrameCount(sampleBuffer.numSamples))
       buffer.frameLength = buffer.frameCapacity
       try sampleBuffer.copyPCMData(
         fromRange: 0..<sampleBuffer.numSamples, into: buffer.mutableAudioBufferList)
-      // A USB mic can switch its native format a few buffers into a session; follow it.
-      if conversion?.source != buffer.format {
-        if conversion == nil {
-          firstAudio()
-        } else {
+      if checkSignal, Self.hasSignal(buffer) {
+        summary.withLock { $0.silentDevice = nil }
+      }
+      // At startup the capture session can deliver the physical integer format before correcting to Float32.
+      if conversion?.source != source {
+        if conversion != nil {
+          summary.withLock { $0.formatChanges += 1 }
           VoiceLog.logger.log(
-            "voice input format changed: \(Int(stream.mSampleRate), privacy: .public) Hz, \(stream.mChannelsPerFrame, privacy: .public) ch, \(stream.mBitsPerChannel, privacy: .public) bit, flags \(stream.mFormatFlags, privacy: .public)"
+            "voice \(self.attempt, privacy: .public) format changed at buffer \(index, privacy: .public): \(Self.describe(stream), privacy: .public)"
           )
         }
-        conversion = try Conversion(input: buffer.format, output: format)
+        conversion = try Conversion(input: source, output: format)
       }
-      if let converted = try conversion?.convert(buffer) {
-        if let probeSeconds {
-          let rate = converted.format.sampleRate
-          // Require a few milliseconds of signal so a lone startup spike cannot hide a silent input.
-          let enoughSignal = Int((rate * 0.005).rounded(.up))
-          signalFrames += Self.signalFrames(in: converted, upTo: enoughSignal - signalFrames)
-          if signalFrames >= enoughSignal {
-            self.probeSeconds = nil
-          } else {
-            let duration = probeSeconds + Double(converted.frameLength) / rate
-            guard duration < 1.25 else { throw SilentMicrophone(deviceName: deviceName) }
-            self.probeSeconds = duration
-          }
-        }
+      stage = .convert
+      try conversion?.convert(buffer) { converted in
         audio(converted)
+        firstAudio?()
+        firstAudio = nil
       }
     } catch {
       failed = true
-      if error is VoiceError || error is SilentMicrophone {
-        fail(error)
+      let failure = (error as? Conversion.Stage) ?? stage
+      VoiceLog.logger.error(
+        "voice \(self.attempt, privacy: .public) conversion failed at \(failure.rawValue, privacy: .public), buffer \(index, privacy: .public): \(Self.describe(description), privacy: .public)"
+      )
+      if error is Conversion.Stage {
+        fail(VoiceError.conversionFailed)
       } else {
         let system = error as NSError
         fail(VoiceSystemError(category: .conversionFailed, domain: system.domain, code: system.code))
@@ -538,43 +567,40 @@ final class AudioSamples: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate
     }
   }
 
-  private static func signalFrames(in buffer: AVAudioPCMBuffer, upTo limit: Int) -> Int {
-    func count<T: SignedNumeric & Comparable>(
-      _ channels: UnsafePointer<UnsafeMutablePointer<T>>, threshold: T
-    ) -> Int {
-      let stride = buffer.stride
-      let channelCount = Int(buffer.format.channelCount)
-      var signal = 0
-      for frame in 0..<Int(buffer.frameLength) {
-        let audible = (0..<channelCount).contains { channel in
-          let sample = stride == 1 ? channels[channel][frame] : channels[0][frame * stride + channel]
-          return sample < -threshold || sample > threshold
-        }
-        if audible { signal += 1 }
-        if signal == limit { break }
+  private static func describe(_ stream: AudioStreamBasicDescription?) -> String {
+    guard let stream else { return "no format" }
+    let flags = stream.mFormatFlags
+    let interleaved = flags & kAudioFormatFlagIsNonInterleaved == 0
+    return
+      "\(stream.mSampleRate) Hz, \(stream.mChannelsPerFrame) ch, \(stream.mBitsPerChannel) bit, flags \(flags), interleaved \(interleaved)"
+  }
+
+  private static func hasSignal(_ buffer: AVAudioPCMBuffer) -> Bool {
+    UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList).contains { channel in
+      let bytes = UnsafeRawBufferPointer(start: channel.mData, count: Int(channel.mDataByteSize))
+      // Signed zero is also silence in floating-point PCM.
+      return switch buffer.format.commonFormat {
+      case .pcmFormatFloat32: bytes.bindMemory(to: Float.self).contains { $0 != 0 }
+      case .pcmFormatFloat64: bytes.bindMemory(to: Double.self).contains { $0 != 0 }
+      default: bytes.contains { $0 != 0 }
       }
-      return signal
     }
-    // At -100 dBFS even a quiet mic's noise floor should count as signal. In 16-bit PCM one bit
-    // already exceeds that floor, so only all-zero samples count as silent.
-    if let channels = buffer.floatChannelData { return count(channels, threshold: 0.00001) }
-    if let channels = buffer.int16ChannelData { return count(channels, threshold: 0) }
-    if let channels = buffer.int32ChannelData { return count(channels, threshold: 21474) }
-    return limit
   }
 }
 
 /// Explicit averaging supports discrete multichannel PCM layouts.
 final class Conversion {
+  enum Stage: String, Error { case nonPCM, format, alloc, copy, converter, convert }
+
   let source: AVAudioFormat
   private let downmix: (mono: AVAudioFormat, normalizer: AVAudioConverter?)?
   private let converter: AVAudioConverter?
 
   init(input: AVAudioFormat, output: AVAudioFormat) throws {
     source = input
-    if input.channelCount > 1 {
+    if input.channelCount > 2 {
       guard let mono = AVAudioFormat(standardFormatWithSampleRate: input.sampleRate, channels: 1) else {
-        throw VoiceError.conversionFailed
+        throw Stage.format
       }
       downmix = (mono, try Self.makeNormalizer(for: input))
     } else {
@@ -582,78 +608,71 @@ final class Conversion {
     }
     let effectiveInput = downmix?.mono ?? input
     converter = effectiveInput == output ? nil : try Self.makeConverter(from: effectiveInput, to: output)
+    converter?.downmix = true
   }
 
   private static func makeNormalizer(for input: AVAudioFormat) throws -> AVAudioConverter? {
     guard input.commonFormat != .pcmFormatFloat32 else { return nil }
-    let floats =
-      if let layout = input.channelLayout {
-        AVAudioFormat(
-          commonFormat: .pcmFormatFloat32, sampleRate: input.sampleRate, interleaved: false,
-          channelLayout: layout)
-      } else {
-        AVAudioFormat(standardFormatWithSampleRate: input.sampleRate, channels: input.channelCount)
-      }
-    guard let floats else { throw VoiceError.conversionFailed }
+    guard
+      let layout = input.channelLayout
+        ?? AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | input.channelCount)
+    else { throw Stage.format }
+    let floats = AVAudioFormat(
+      commonFormat: .pcmFormatFloat32, sampleRate: input.sampleRate, interleaved: false, channelLayout: layout
+    )
     return try makeConverter(from: input, to: floats)
   }
 
   private static func makeConverter(from input: AVAudioFormat, to output: AVAudioFormat) throws
     -> AVAudioConverter
   {
-    guard let converter = AVAudioConverter(from: input, to: output) else {
-      throw VoiceError.conversionFailed
-    }
+    guard let converter = AVAudioConverter(from: input, to: output) else { throw Stage.converter }
     return converter
   }
 
   fileprivate static func allocate(_ format: AVAudioFormat, frames: AVAudioFrameCount) throws
     -> AVAudioPCMBuffer
   {
-    guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else {
-      throw VoiceError.conversionFailed
-    }
+    guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { throw Stage.alloc }
     return buffer
   }
 
-  func convert(_ buffer: AVAudioPCMBuffer) throws -> AVAudioPCMBuffer? {
-    guard buffer.format == source else { throw VoiceError.conversionFailed }
-    guard buffer.frameLength > 0 else { return nil }
+  func convert(_ buffer: AVAudioPCMBuffer, deliver: (AVAudioPCMBuffer) -> Void) throws {
+    guard buffer.format == source else { throw Stage.format }
+    guard buffer.frameLength > 0 else { return }
     var input = buffer
     if let downmix {
       if let normalizer = downmix.normalizer {
-        input = try Self.convertSameRate(buffer, using: normalizer)
+        input = try Self.allocate(normalizer.outputFormat, frames: buffer.frameLength)
+        try normalizer.convert(to: input, from: buffer)
       }
       input = try Self.mix(input, to: downmix.mono)
     }
-    guard let converter else { return input }
+    guard let converter else { return deliver(input) }
     let format = converter.outputFormat
     let ratio = format.sampleRate / input.format.sampleRate
-    if ratio == 1 { return try Self.convertSameRate(input, using: converter) }
-    // Leave room for rate-conversion rounding so the converter can drain the current input.
     let capacity = AVAudioFrameCount((Double(input.frameLength) * ratio).rounded(.up)) + 1
-    let output = try Self.allocate(format, frames: capacity)
-    var error: NSError?
-    let status = converter.convert(to: output, error: &error, withInputFrom: Self.inputBlock(input))
-    if status == .error {
-      if let error { throw error }
-      throw VoiceError.conversionFailed
-    }
-    return output.frameLength > 0 ? output : nil
-  }
-
-  private static func convertSameRate(_ input: AVAudioPCMBuffer, using converter: AVAudioConverter) throws
-    -> AVAudioPCMBuffer
-  {
-    let output = try allocate(converter.outputFormat, frames: input.frameLength)
-    try converter.convert(to: output, from: input)
-    return output
+    // The converter calls the input block synchronously. Offer the packet once across all drains.
+    nonisolated(unsafe) var pending: AVAudioPCMBuffer? = input
+    var status: AVAudioConverterOutputStatus
+    repeat {
+      let output = try Self.allocate(format, frames: capacity)
+      var error: NSError?
+      status = converter.convert(to: output, error: &error) { _, status in
+        let packet = pending
+        pending = nil
+        status.pointee = packet == nil ? .noDataNow : .haveData
+        return packet
+      }
+      if status == .error { throw (error as (any Error)?) ?? Stage.convert }
+      if output.frameLength > 0 { deliver(output) }
+    } while status == .haveData
   }
 
   private static func mix(_ input: AVAudioPCMBuffer, to mono: AVAudioFormat) throws -> AVAudioPCMBuffer {
     let mixed = try allocate(mono, frames: input.frameLength)
     guard let channels = input.floatChannelData, let samples = mixed.floatChannelData?[0] else {
-      throw VoiceError.conversionFailed
+      throw Stage.format
     }
     mixed.frameLength = input.frameLength
     let count = Int(input.format.channelCount)
@@ -668,20 +687,6 @@ final class Conversion {
     return mixed
   }
 
-  static func inputBlock(_ buffer: AVAudioPCMBuffer) -> AVAudioConverterInputBlock {
-    nonisolated(unsafe) var supplied = false
-    // AVAudioPCMBuffer is Sendable only from the macOS 27 SDK; the converter calls this block synchronously.
-    nonisolated(unsafe) let buffer = buffer
-    return { _, status in
-      guard !supplied else {
-        status.pointee = .noDataNow
-        return nil
-      }
-      supplied = true
-      status.pointee = .haveData
-      return buffer
-    }
-  }
 }
 
 /// Prefer the user's region, then the language's likely region, then any supported region.

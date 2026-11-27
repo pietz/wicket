@@ -70,7 +70,7 @@ import Testing
 
   // A key in a slot stops voice capture first.
   controller.input.toggle()
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   #expect(await eventually { controller.input.voice?.state == .listening })
   #expect(panel.route(voiceKey(48, "\t", .shift)))
   #expect(controller.input.voice?.state == .idle && fake.stops == 1)

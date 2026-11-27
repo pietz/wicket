@@ -9,15 +9,15 @@ import Testing
 private func audio(_ channels: UInt32, rate: Double = 48000, interleaved: Bool = false) throws
   -> AVAudioPCMBuffer
 {
-  var asbd = AudioStreamBasicDescription(
-    mSampleRate: rate, mFormatID: kAudioFormatLinearPCM,
-    mFormatFlags: kAudioFormatFlagsNativeFloatPacked | (interleaved ? 0 : kAudioFormatFlagIsNonInterleaved),
-    mBytesPerPacket: interleaved ? channels * 4 : 4, mFramesPerPacket: 1,
-    mBytesPerFrame: interleaved ? channels * 4 : 4, mChannelsPerFrame: channels, mBitsPerChannel: 32,
-    mReserved: 0)
-  let layout = try #require(
-    AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | channels))
-  let format = try #require(AVAudioFormat(streamDescription: &asbd, channelLayout: layout))
+  let tag =
+    switch channels {
+    case 1: kAudioChannelLayoutTag_Mono
+    case 2: kAudioChannelLayoutTag_Stereo
+    default: kAudioChannelLayoutTag_DiscreteInOrder | channels
+    }
+  let layout = try #require(AVAudioChannelLayout(layoutTag: tag))
+  let format = AVAudioFormat(
+    commonFormat: .pcmFormatFloat32, sampleRate: rate, interleaved: interleaved, channelLayout: layout)
   let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4800))
   buffer.frameLength = 4800
   for channel in 0..<Int(channels) {
@@ -34,10 +34,13 @@ func synthesizedAudioPreservesRateAndChannelAverage(_ channels: UInt32, _ interl
   let input = try audio(channels, interleaved: interleaved)
   let output = try #require(AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1))
   let conversion = try Conversion(input: input.format, output: output)
-  let result = try #require(try conversion.convert(input))
-  #expect(result.frameCapacity == 1601 && result.frameLength > 1000 && result.frameLength <= 1600)
   let expected = Float(channels + 1) / (2 * Float(channels))
-  #expect(abs(result.floatChannelData![0][500] - expected) < 0.001)
+  var frames: AVAudioFrameCount = 0
+  try conversion.convert(input) { result in
+    #expect(result.frameLength > 500 && abs(result.floatChannelData![0][500] - expected) < 0.001)
+    frames += result.frameLength
+  }
+  #expect((1001...1600).contains(frames))
 }
 
 /// Counts what opening and closing do in place of hardware.
@@ -200,27 +203,21 @@ private func signalArrives(_ signal: DispatchSemaphore, within seconds: Double) 
   }
 }
 
-@Test func conversionSuppliesEachBufferOnceThenNoDataNow() throws {
-  let input = try audio(1)
-  let block = Conversion.inputBlock(input)
-  var state = AVAudioConverterInputStatus.noDataNow
-  #expect(block(4800, &state) === input && state == .haveData)
-  #expect(block(4800, &state) == nil && state == .noDataNow)
-  #expect(block(4800, &state) == nil && state == .noDataNow)
-}
-
 @Test func conversionDownmixesInterleavedInputAndReportsFormatFailures() throws {
   let input = try audio(4, interleaved: true)
   let output = try #require(AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1))
   let conversion = try Conversion(input: input.format, output: output)
-  let converted = try #require(try conversion.convert(input))
-  #expect((4411...4412).contains(converted.frameCapacity))
-  #expect(converted.frameLength > 0)  // The first buffer pays the converter's filter priming delay.
-  let steady = try #require(try conversion.convert(input))
-  #expect((4410...4412).contains(steady.frameLength))
-  #expect(abs(converted.floatChannelData![0][500] - 0.625) < 0.001)
+  try conversion.convert(input) {
+    #expect($0.frameLength > 500 && abs($0.floatChannelData![0][500] - 0.625) < 0.001)
+  }
+  var frames: AVAudioFrameCount = 0
+  for length: AVAudioFrameCount in [49, 4799, 3, 128, 4800] {
+    input.frameLength = length
+    try conversion.convert(input) { frames += $0.frameLength }
+  }
+  #expect((8983...8986).contains(frames))
   let wrong = try audio(1)
-  #expect(throws: VoiceError.conversionFailed) { try conversion.convert(wrong) }
+  #expect(throws: Conversion.Stage.format) { try conversion.convert(wrong) { _ in } }
 }
 
 private func captureSample(_ input: AVAudioPCMBuffer) throws -> CMSampleBuffer {
@@ -259,68 +256,57 @@ private func captureSample(_ input: AVAudioPCMBuffer) throws -> CMSampleBuffer {
 }
 
 @Test func inputFormatChangeMidSessionKeepsDeliveringAudio() throws {
-  let output = try #require(AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1))
-  let before = try captureSample(try audio(2, rate: 48000))
-  let after = try captureSample(try audio(2, rate: 32000, interleaved: true))
+  let output = try #require(
+    AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: false))
+  let integer = try #require(
+    AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 32000, channels: 2, interleaved: true))
+  let input = try #require(AVAudioPCMBuffer(pcmFormat: integer, frameCapacity: 4800))
+  input.frameLength = 4800
+  let stereo = try #require(input.int16ChannelData?[0])
+  for frame in 0..<4800 {
+    stereo[2 * frame] = 0
+    stereo[2 * frame + 1] = 16000
+  }
+  let before = try captureSample(input)
+  let after = try captureSample(try audio(2, rate: 32000))
   let counts = Mutex((audio: 0, first: 0))
   let receiver = AudioSamples(
     format: output, deviceName: "Test input",
     audio: { result in
       #expect(result.format == output)
-      counts.withLock { $0.audio += 1 }
+      counts.withLock {
+        let expected = $0.audio == 0 ? 8000 : 24576
+        #expect(result.frameLength > 500 && abs(Int(result.int16ChannelData![0][500]) - expected) <= 1)
+        $0.audio += 1
+      }
     },
     firstAudio: { counts.withLock { $0.first += 1 } },
     fail: { Issue.record("Audio failed: \(VoiceLog.describe($0))") })
-  for packet in [before, after, after, before] { receiver.receive(packet) }
-  #expect(counts.withLock { $0 } == (4, 1))
+  for packet in [before, after, after] { receiver.receive(packet) }
+  #expect(counts.withLock { $0 } == (3, 1))
+  #expect(receiver.captured.buffers == 3 && receiver.captured.formatChanges == 1)
 }
 
 @Test(arguments: [AVAudioCommonFormat.pcmFormatFloat32, .pcmFormatInt16])
-func earlyDigitalSilenceReportsTheInputOnce(_ analyzerFormat: AVAudioCommonFormat) throws {
+func digitalSilenceKeepsDeliveringUntilSignalArrives(_ analyzerFormat: AVAudioCommonFormat) throws {
   let input = try audio(2, interleaved: true)
   let output = try #require(
     AVAudioFormat(commonFormat: analyzerFormat, sampleRate: 16000, channels: 1, interleaved: false))
-  input.floatChannelData![0].update(repeating: 0, count: 2 * Int(input.frameLength))
+  input.floatChannelData![0].update(repeating: -0.0, count: 2 * Int(input.frameLength))
   let packet = try captureSample(input)
-  let counts = Mutex((audio: 0, failures: 0))
+  let delivered = Mutex(0)
   let receiver = AudioSamples(
     format: output, deviceName: "Dock",
-    audio: { _ in counts.withLock { $0.audio += 1 } }, firstAudio: {},
-    fail: { error in
-      #expect((error as? SilentMicrophone)?.deviceName == "Dock")
-      counts.withLock { $0.failures += 1 }
-    })
-  for _ in 0..<12 { receiver.receive(packet) }
-  #expect(counts.withLock { $0 } == (12, 0))
-  for _ in 0..<4 { receiver.receive(packet) }
-  #expect(counts.withLock { $0 } == (12, 1))
-}
-
-@Test(arguments: [true, false])
-func startupClickDoesNotCountAsQuietInput(_ hasNoiseFloor: Bool) throws {
-  let input = try audio(1)
-  let output = input.format
-  input.floatChannelData![0].update(repeating: 0.000001, count: Int(input.frameLength))
-  let belowThreshold = try captureSample(input)
-  for frame in 0..<Int(input.frameLength) {
-    input.floatChannelData![0][frame] = frame.isMultiple(of: 2) ? 0.00002 : -0.00002
-  }
-  let quietSignal = try captureSample(input)
-  input.floatChannelData![0].update(repeating: 0, count: Int(input.frameLength))
-  input.floatChannelData![0][0] = 0.8
-  let click = try captureSample(input)
-  let failures = Mutex(0)
-  let receiver = AudioSamples(
-    format: output, deviceName: "Quiet microphone",
-    audio: { _ in }, firstAudio: {},
-    fail: { error in
-      #expect(error is SilentMicrophone)
-      failures.withLock { $0 += 1 }
-    })
-  receiver.receive(click)
-  receiver.receive(hasNoiseFloor ? quietSignal : belowThreshold)
-  for _ in 0..<30 { receiver.receive(belowThreshold) }
-  #expect(failures.withLock { $0 } == (hasNoiseFloor ? 0 : 1))
+    audio: { _ in delivered.withLock { $0 += 1 } }, firstAudio: {},
+    fail: { Issue.record("Audio failed: \(VoiceLog.describe($0))") })
+  for _ in 0..<20 { receiver.receive(packet) }
+  #expect(delivered.withLock { $0 } == 20)
+  #expect(receiver.captured.silentDevice == "Dock")
+  input.floatChannelData![0][0] = 0.000001
+  receiver.receive(try captureSample(input))
+  receiver.receive(packet)
+  #expect(delivered.withLock { $0 } == 22)
+  #expect(receiver.captured.silentDevice == nil)
 }
 
 @Test(

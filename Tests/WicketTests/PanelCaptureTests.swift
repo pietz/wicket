@@ -415,7 +415,7 @@ private let installedAgent: Void = {
     case "ask": model.navigator.input = "How do rainbows form?"
     case "listening":
       controller.input.arm()
-      transcriber.feeds[0].yield(.ready)
+      transcriber.feeds[0].yield(.audio(.now))
       transcriber.feeds[0].yield(.transcript("How do rainbows form?"))
       #expect(await eventually { model.navigator.input == "How do rainbows form?" })
     case "conversation-reopen":
@@ -564,7 +564,7 @@ private let installedAgent: Void = {
     case "arrival-dictated":
       let input = try #require(scenario.controller?.input)
       input.arm()
-      transcriber.feeds[0].yield(.ready)
+      transcriber.feeds[0].yield(.audio(.now))
       #expect(await eventually { input.voice?.state == .listening })
       model.navigator.go(Address(id: "slow"), submitted: true)
       transcriber.feeds[0].yield(.transcript("Finished yet?"))

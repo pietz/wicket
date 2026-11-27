@@ -3,7 +3,7 @@ import Observation
 import os
 
 /// Voice diagnostics for `log show --predicate 'subsystem == "app.wicket" AND category == "voice"'`:
-/// why capture stopped, error domains and codes, and timings. Never device names, transcripts or locales.
+/// Capture formats, counts, timings and stable error identifiers.
 enum VoiceLog {
   static let logger = Logger(subsystem: "app.wicket", category: "voice")
   static func milliseconds(since start: ContinuousClock.Instant) -> Int {
@@ -30,14 +30,19 @@ enum VoiceUpdate: Sendable {
   case permission(Bool)
   case openingMicrophone(ContinuousClock.Instant)
   case audio(ContinuousClock.Instant)
-  case ready
   case transcript(String)
+}
+
+struct VoiceCapture {
+  var buffers = 0
+  var formatChanges = 0
+  var silentDevice: String?
 }
 
 /// The only hardware boundary. Construction is lazy and stop must return immediately.
 @MainActor protocol Transcriber {
-  func start(allowBluetooth: Bool) -> AsyncThrowingStream<VoiceUpdate, any Error>
-  func stop()
+  func start(allowBluetooth: Bool, attempt: Int) -> AsyncThrowingStream<VoiceUpdate, any Error>
+  @discardableResult func stop() -> VoiceCapture
   var shutdown: AsyncStream<Never>? { get }
 }
 extension Transcriber { var shutdown: AsyncStream<Never>? { nil } }
@@ -56,20 +61,19 @@ final class VoiceInput {
   @ObservationIgnored private var transcriber: (any Transcriber)?
   @ObservationIgnored private var session: Task<Void, Never>?
   @ObservationIgnored private var timer: Task<Void, Never>?
-  @ObservationIgnored private var listeningStarted = ContinuousClock.now
   @ObservationIgnored private var generation = 0
   @ObservationIgnored private let timingURL: URL?
   @ObservationIgnored private let runtime: RuntimeRecorder?
   @ObservationIgnored private(set) var shutdown: Task<Void, Never>?
   @ObservationIgnored private let timingWriter: LatestWriter<String>
   @ObservationIgnored private var timingSaved = false
-  @ObservationIgnored private var firstAudio: Duration?
+  @ObservationIgnored private var firstAudio: ContinuousClock.Instant?
   @ObservationIgnored private var firstTranscript: Duration?
   @ObservationIgnored private var opened = ContinuousClock.now
   var startupDuration: Duration = .seconds(8)
   var shutdownDuration: Duration = .milliseconds(500)
   var silenceDuration: Duration = .seconds(60)
-  /// Listening ends this soon after capture is ready when nothing has been said yet, so the microphone
+  /// Listening ends this soon after audio starts when nothing has been said yet, so the microphone
   /// goes off quickly whenever Wicket is opened only to type.
   var noSpeechDuration: Duration = .seconds(3)
   var maximumDuration: Duration = .seconds(300)
@@ -97,18 +101,20 @@ final class VoiceInput {
     generation += 1
     let current = generation
     opened = .now
+    VoiceLog.logger.log(
+      "voice \(current, privacy: .public) start: \(allowBluetooth ? "manual" : "auto", privacy: .public)")
     firstAudio = nil
     firstTranscript = nil
     timingSaved = false
     let source = makeTranscriber()
     transcriber = source
     let previous = shutdown
-    let stream = previous == nil ? source.start(allowBluetooth: allowBluetooth) : nil
+    let stream = previous == nil ? source.start(allowBluetooth: allowBluetooth, attempt: current) : nil
     session = Task { [weak self] in
       await previous?.value
       guard !Task.isCancelled else { return }
       do {
-        for try await update in stream ?? source.start(allowBluetooth: allowBluetooth) {
+        for try await update in stream ?? source.start(allowBluetooth: allowBluetooth, attempt: current) {
           guard let self, !Task.isCancelled, generation == current else { return }
           switch update {
           case .permission(let pending):
@@ -116,10 +122,9 @@ final class VoiceInput {
             if !pending { onPermissionFinished() }
           case .openingMicrophone(let time):
             scheduleStop(at: time + startupDuration, reason: .startTimeout)
-          case .audio(let time): firstAudio = time - opened
-          case .ready:
+          case .audio(let time):
+            firstAudio = time
             permissionDenied = false
-            listeningStarted = .now
             state = .listening
             guard generation == current else { return }
             scheduleStop()
@@ -142,14 +147,13 @@ final class VoiceInput {
         bluetoothOnly = true
       } catch {
         guard let self, generation == current else { return }
-        let silent = error as? SilentMicrophone
-        let diagnostic: any Error = silent == nil ? error : VoiceError.silentMicrophone
-        VoiceLog.logger.error("voice failed: \(VoiceLog.describe(diagnostic), privacy: .public)")
-        let category = (diagnostic as? VoiceSystemError)?.category ?? diagnostic as? VoiceError
+        VoiceLog.logger.error(
+          "voice \(current, privacy: .public) failed: \(VoiceLog.describe(error), privacy: .public)")
+        let category = (error as? VoiceSystemError)?.category ?? error as? VoiceError
         permissionDenied = category == .microphoneDenied
-        runtime?.voiceFailed(diagnostic, reason: .failed)
+        runtime?.voiceFailed(error, reason: .failed)
         stop(.failed)
-        problem = silent?.message ?? category?.description ?? "Couldn't listen. Try again."
+        problem = category?.description ?? "Couldn't listen. Try again."
       }
     }
   }
@@ -160,7 +164,7 @@ final class VoiceInput {
       value.map { "\(Int($0 / .milliseconds(1))) ms" } ?? "none"
     }
     timingWriter.submit(
-      "Last voice session: \(Date())\nOpen to first audio: \(milliseconds(firstAudio))\nOpen to first transcript: \(milliseconds(firstTranscript))\n"
+      "Last voice session: \(Date())\nOpen to first audio: \(milliseconds(firstAudio.map { $0 - opened }))\nOpen to first transcript: \(milliseconds(firstTranscript))\n"
     )
   }
   func stop(_ reason: VoiceStop) {
@@ -172,11 +176,12 @@ final class VoiceInput {
       if !permissionDenied { problem = nil }
     }
     guard active else { return }
-    VoiceLog.logger.log(
-      "voice stop: \(reason.rawValue, privacy: .public) while \(self.state == .listening ? "listening" : "starting", privacy: .public), \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after start"
-    )
+    let attempt = generation
     generation += 1
-    transcriber?.stop()
+    let capture = transcriber?.stop() ?? VoiceCapture()
+    VoiceLog.logger.log(
+      "voice \(attempt, privacy: .public) stop: \(reason.rawValue, privacy: .public), \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms, buffers \(capture.buffers, privacy: .public), format changes \(capture.formatChanges, privacy: .public)"
+    )
     if let closing = transcriber?.shutdown {
       let deadline = ContinuousClock.now + shutdownDuration
       // A driver can stall its capture queue. Cancel the stream wait so the next session can open.
@@ -197,6 +202,10 @@ final class VoiceInput {
     timer = nil
     requestingPermission = false
     state = .idle
+    if reason == .noSpeech, let device = capture.silentDevice {
+      runtime?.voiceFailed(VoiceError.silentMicrophone, reason: reason)
+      problem = "No sound from \(device). Check Sound → Input."
+    }
   }
   /// Any key hands input to typing. Escape stops capture before navigating.
   func keyPressed(isEscape: Bool) -> Bool {
@@ -205,13 +214,13 @@ final class VoiceInput {
     return isEscape
   }
   private func scheduleStop() {
-    guard state == .listening else { return }
-    let limit = listeningStarted + maximumDuration
+    guard let firstAudio, state == .listening else { return }
+    let limit = firstAudio + maximumDuration
     // Past the hard limit a transcript stops capture itself: continuous speech (or a TV) would
     // otherwise keep replacing the timer before it gets to run.
     guard ContinuousClock.now < limit else { return stop(.limit) }
     let waiting = firstTranscript == nil
-    let deadline = min(limit, .now + (waiting ? noSpeechDuration : silenceDuration))
+    let deadline = min(limit, waiting ? firstAudio + noSpeechDuration : .now + silenceDuration)
     scheduleStop(at: deadline, reason: deadline == limit ? .limit : waiting ? .noSpeech : .silence)
   }
   private func scheduleStop(at deadline: ContinuousClock.Instant, reason: VoiceStop) {
@@ -233,11 +242,6 @@ struct VoiceSystemError: Error {
   let category: VoiceError
   let domain: String
   let code: Int
-}
-
-struct SilentMicrophone: Error {
-  let deviceName: String
-  var message: String { "No sound from \(deviceName). Check Sound → Input." }
 }
 
 /// The raw value is the case alone, for the log.

@@ -682,7 +682,7 @@ func aRootItemsLinkCannotReceiveTheDraftFromItsPreviousRun(byHotkey: Bool) async
   #expect(try requests().count == 3 && last.submitted && last.fields == ["text": "again"])
   // Voice fills the input and runs nothing.
   controller.input.toggle()
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   fake.feeds[0].yield(.transcript("spoken words"))
   #expect(await eventually { model.navigator.input == "spoken words" })
   try await Task.sleep(for: .milliseconds(450))

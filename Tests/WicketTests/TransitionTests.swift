@@ -623,7 +623,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   voiced.navigator.input = "a"
   await voiced.navigator.settled()
   controller.input.arm()
-  transcriber.feeds[0].yield(.ready)
+  transcriber.feeds[0].yield(.audio(.now))
   #expect(await eventually { controller.input.voice?.state == .listening })
   voiced.navigator.arrivalDeadline = .seconds(5)
   voiced.navigator.go(Address(id: "slow"), submitted: true)

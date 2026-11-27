@@ -29,15 +29,17 @@ import Testing
   var bluetoothAllowed: [Bool] = []
   var stops = 0
   var shutdown: AsyncStream<Never>?
-  func start(allowBluetooth: Bool) -> AsyncThrowingStream<VoiceUpdate, any Error> {
+  var captured = VoiceCapture()
+  func start(allowBluetooth: Bool, attempt: Int) -> AsyncThrowingStream<VoiceUpdate, any Error> {
     bluetoothAllowed.append(allowBluetooth)
     let (stream, feed) = AsyncThrowingStream.makeStream(of: VoiceUpdate.self)
     feeds.append(feed)
     return stream
   }
-  func stop() {
+  @discardableResult func stop() -> VoiceCapture {
     stops += 1
     feeds.last?.finish()
+    return captured
   }
 }
 
@@ -63,7 +65,7 @@ import Testing
 
   input.toggle()
   #expect(fake.bluetoothAllowed == [false, false, true] && input.bluetoothHint == nil)
-  fake.feeds[2].yield(.ready)
+  fake.feeds[2].yield(.audio(.now))
   #expect(await eventually { input.status == "Listening…" })
   input.stop(.hidden)
 
@@ -87,7 +89,7 @@ import Testing
   #expect(!navigator.presentation.showsCard)
   input.arm()
   #expect(!navigator.presentation.showsCard && navigator.presentation.pillStatus == "Starting voice…")
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   #expect(await eventually { navigator.presentation.pillStatus == "Listening…" })
   #expect(!navigator.presentation.showsCard)
   fake.feeds[0].yield(.transcript("Search"))
@@ -106,18 +108,19 @@ import Testing
   await model.finish()
 }
 
-@MainActor @Test func silentMicrophoneStopsListeningAndNamesTheInputOnlyInTheUI() async {
+@MainActor @Test func noSpeechWithDigitalSilenceNamesTheInputOnlyInTheUI() async {
   let fake = FakeTranscriber()
   let recorder = RuntimeRecorder()
   let voice = VoiceInput(transcriber: { fake }, runtime: recorder, write: { _ in })
+  voice.noSpeechDuration = .milliseconds(15)
   voice.arm()
-  fake.feeds[0].yield(.ready)
-  #expect(await eventually { voice.state == .listening })
-  fake.feeds[0].finish(throwing: SilentMicrophone(deviceName: "Desk dock"))
+  fake.captured.silentDevice = "Desk dock"
+  fake.feeds[0].yield(.audio(.now))
   #expect(await eventually { voice.state == .idle })
   #expect(voice.problem == "No sound from Desk dock. Check Sound → Input.")
   #expect(fake.stops == 1)
   #expect(recorder.record.lastVoiceFailure?.errorCase == "silentMicrophone")
+  #expect(recorder.record.lastVoiceFailure?.stopReason == "noSpeech")
   #expect(recorder.record.lastVoiceFailure?.osDomain == nil)
 }
 
@@ -127,7 +130,7 @@ import Testing
   let voice = VoiceInput(transcriber: { fake }, write: { input = $0 })
   voice.toggle()
   #expect(voice.state == .starting && fake.feeds.count == 1)
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   #expect(await eventually { voice.state == .listening })
   var transcript = Transcript()
   transcript.apply("Open Cal", isFinal: false)
@@ -158,7 +161,7 @@ import Testing
     Issue.record("Old stream accepted a late transcript")
   }
   fake.feeds[0].finish(throwing: VoiceError.microphoneDenied)
-  fake.feeds[1].yield(.ready)
+  fake.feeds[1].yield(.audio(.now))
   fake.feeds[1].yield(.transcript("current"))
   #expect(await eventually { input == "current" })
   #expect(voice.problem == nil && voice.state == .listening)
@@ -215,7 +218,7 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   voice.toggle()
   try #require(await eventually(within: .seconds(15)) { fresh.feeds.count == 1 })
   fresh.feeds[0].yield(.openingMicrophone(.now))
-  fresh.feeds[0].yield(.ready)
+  fresh.feeds[0].yield(.audio(.now))
   #expect(await eventually(within: .seconds(15)) { voice.state == .listening })
   #expect(creations == 2 && stuck.feeds.count == 1 && voice.problem == nil)
   voice.stop(.toggle)
@@ -233,14 +236,14 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   voice.shutdownDuration = .milliseconds(40)
   voice.noSpeechDuration = .seconds(60)
   voice.toggle()
-  stuck.feeds[0].yield(.ready)
+  stuck.feeds[0].yield(.audio(.now))
   #expect(await eventually(within: .seconds(15)) { voice.state == .listening })
   voice.stop(.hidden)
   next = fresh
   voice.arm()
   #expect(voice.state == .starting && fresh.feeds.isEmpty)
   try #require(await eventually(within: .seconds(15)) { fresh.feeds.count == 1 })
-  fresh.feeds[0].yield(.ready)
+  fresh.feeds[0].yield(.audio(.now))
   #expect(await eventually(within: .seconds(15)) { voice.state == .listening })
   #expect(voice.problem == nil)
   voice.stop(.toggle)
@@ -250,7 +253,7 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   let fake = FakeTranscriber()
   let voice = VoiceInput(transcriber: { fake }, write: { _ in })
   voice.toggle()
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   #expect(await eventually { voice.state == .listening })
   voice.silenceDuration = .milliseconds(15)
   fake.feeds[0].yield(.transcript("hello"))
@@ -263,17 +266,18 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   let voice = VoiceInput(transcriber: { fake }, write: { _ in })
   voice.silenceDuration = .seconds(30)
   voice.noSpeechDuration = .milliseconds(15)
-  // Startup is not bounded by the no-speech limit: it starts only once capture is ready.
+  voice.startupDuration = .seconds(60)
   voice.toggle()
+  fake.feeds[0].yield(.openingMicrophone(.now))
   try await Task.sleep(for: .milliseconds(80))
   #expect(voice.state == .starting && fake.stops == 0)
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   #expect(await eventually { voice.state == .idle })
   #expect(voice.problem == nil && fake.stops == 1)
   // After a first transcript only the inactivity limit applies.
   voice.noSpeechDuration = .seconds(30)
   voice.toggle()
-  fake.feeds[1].yield(.ready)
+  fake.feeds[1].yield(.audio(.now))
   #expect(await eventually { voice.state == .listening })
   voice.noSpeechDuration = .milliseconds(15)
   fake.feeds[1].yield(.transcript("hello"))
@@ -288,7 +292,7 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   voice.silenceDuration = .seconds(30)
   voice.maximumDuration = .milliseconds(15)
   voice.toggle()
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   #expect(await eventually { voice.state == .idle })
   #expect(fake.stops == 1)
 }
@@ -310,7 +314,7 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   controller.input.toggle()
   #expect(controller.input.status == "Starting voice…")
   let feed = try #require(fake.feeds.first)
-  feed.yield(.ready)
+  feed.yield(.audio(.now))
   feed.yield(.transcript("2+2."))
   #expect(await eventually { model.navigator.input == "2+2" })
   #expect(controller.input.status == "Listening…" && fake.bluetoothAllowed == [true])
@@ -324,7 +328,7 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   let fake = FakeTranscriber()
   let (model, controller) = voicedPanel(in: folder, transcriber: { fake })
   controller.input.toggle()
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   fake.feeds[0].yield(.transcript("spoken"))
   #expect(await eventually { model.navigator.input == "spoken" })
   let panel = RoutingPanel()
@@ -377,7 +381,7 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   let client = FakeAgent()
   model.agent.connect = { _, _, _ in client }
   controller.input.toggle()
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   fake.feeds[0].yield(.transcript("Why?"))
   #expect(await eventually { model.navigator.input == "Why?" })
   #expect(model.agent.question == "First" && !model.agent.busy)
@@ -431,7 +435,7 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   model.store.start()
   controller.show(orderFront: false)
   controller.input.voice?.noSpeechDuration = .seconds(30)
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   #expect(await eventually { controller.input.voice?.state == .listening })
   try Data(#"{"voice":{"enabled":"yes"}}"#.utf8).write(to: url, options: .atomic)
   #expect(await eventually { model.store.problem != nil })
@@ -462,7 +466,7 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
   controller.input.toggle()
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   fake.feeds[0].yield(.transcript("voice search"))
   #expect(await eventually { model.navigator.input == "voice search" })
   await model.navigator.settled()
@@ -477,7 +481,7 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   #expect(panel.route(voiceKey(36, "\r")))
   #expect(controller.input.voice?.state == .idle)
   controller.input.toggle()
-  fake.feeds[1].yield(.ready)
+  fake.feeds[1].yield(.audio(.now))
   fake.feeds[1].yield(.transcript("command words"))
   #expect(await eventually { model.navigator.input == "command words" })
   await model.navigator.settled()
@@ -493,7 +497,7 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   let fake = FakeTranscriber()
   let (model, controller) = voicedPanel(in: folder, transcriber: { fake })
   controller.show(orderFront: false)
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   fake.feeds[0].yield(.transcript("How do rainbows form?"))
   #expect(
     await eventually {
@@ -549,7 +553,7 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   let (model, controller) = voicedPanel(in: folder, transcriber: { fake })
   model.agent.connect = { _, _, _ in client }
   controller.input.toggle()
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   #expect(await eventually { controller.input.voice?.state == .listening })
   model.navigator.send("Busy now")
   #expect(!model.agent.takesSpeech && controller.input.voice?.state == .idle && fake.stops == 1)
@@ -583,7 +587,7 @@ func eastAsianSegmentsKeepNativeWordBoundaries(_ language: String) {
   let voice = VoiceInput(transcriber: { fake }, write: { _ in })
   voice.toggle()
   voice.stop(.toggle)
-  if case .terminated = fake.feeds[0].yield(.ready) {
+  if case .terminated = fake.feeds[0].yield(.audio(.now)) {
   } else {
     Issue.record("Stopped fake left its stream open")
   }
@@ -598,7 +602,7 @@ func eastAsianSegmentsKeepNativeWordBoundaries(_ language: String) {
   controller.show(orderFront: false)
   #expect(controller.input.voice?.state == .starting && fake.feeds.count == 1)
   // Queue both updates before the first key. The consumer has not run yet.
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   fake.feeds[0].yield(.transcript("late speech"))
   #expect(controller.panel.route(voiceKey(125, "")))  // Arrow does not edit the field.
   #expect(controller.input.voice?.state == .idle && fake.stops == 1)
@@ -611,7 +615,7 @@ func eastAsianSegmentsKeepNativeWordBoundaries(_ language: String) {
   controller.hide()
   controller.show(orderFront: false)
   #expect(controller.input.voice?.state == .starting && fake.feeds.count == 2)
-  fake.feeds[1].yield(.ready)
+  fake.feeds[1].yield(.audio(.now))
   fake.feeds[1].yield(.transcript("Open Safari."))
   #expect(await eventually { model.navigator.input == "Open Safari" })
   #expect(!model.agent.active)
@@ -643,7 +647,7 @@ func eastAsianSegmentsKeepNativeWordBoundaries(_ language: String) {
   #expect(controller.input.voice?.problem == VoiceError.microphoneDenied.description)
   // An intentional mic click retries after the user changes System Settings.
   controller.input.toggle()
-  fake.feeds[1].yield(.ready)
+  fake.feeds[1].yield(.audio(.now))
   #expect(await eventually { controller.input.voice?.state == .listening })
   controller.hide()
   controller.show()
@@ -668,7 +672,7 @@ func eastAsianSegmentsKeepNativeWordBoundaries(_ language: String) {
   var input = "existing input"
   let voice = VoiceInput(transcriber: { fake }, write: { input = $0 })
   voice.arm()
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   for noise in ["", "  ", "…", "-", "。..."] { fake.feeds[0].yield(.transcript(noise)) }
   #expect(await eventually { voice.state == .listening })
   #expect(input == "existing input")
@@ -692,7 +696,7 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
   #expect(controller.input.voice?.active == permission)
   if permission {
     fake.feeds[0].yield(.permission(false))
-    fake.feeds[0].yield(.ready)
+    fake.feeds[0].yield(.audio(.now))
     #expect(await eventually { controller.input.voice?.state == .listening })
     #expect(model.navigator.input == "kept through consent")
   } else {
@@ -710,7 +714,7 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
   voice.silenceDuration = .seconds(30)
   voice.noSpeechDuration = .seconds(30)
   voice.toggle()
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   #expect(await eventually { voice.state == .listening })
   voice.maximumDuration = .zero
   fake.feeds[0].yield(.transcript("one"))
@@ -737,7 +741,7 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
   try await Task.sleep(for: .milliseconds(100))
   #expect(voice.state == .starting && !voice.requestingPermission && fake.stops == 0)
   fake.feeds[0].yield(.openingMicrophone(.now))
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   #expect(await eventually { voice.state == .listening })
   #expect(voice.problem == nil)
   voice.stop(.toggle)
@@ -781,7 +785,7 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
   await model.extensions.reload()
   await model.navigator.settled()
   controller.input.arm()
-  fake.feeds[0].yield(.ready)
+  fake.feeds[0].yield(.audio(.now))
   for number in 1...4 {
     fake.feeds[0].yield(.transcript("2+\(number)"))
     #expect(await eventually { model.navigator.input == "2+\(number)" })
