@@ -56,6 +56,7 @@ Unordered; scheduled after the steps above:
 - Build a reusable verification harness for an unlocked Mac: launch Wicket Dev with a scratch config, open panel, drive keys, capture screenshots over light/dark/busy backgrounds, and quit cleanly.
 - Add a theme option to join the search pill and card into one glass shape (`tools/glass-lab`, ⌘J); separate stays default.
 - Add a Weather **Source** setting (Open-Meteo by default; MET Norway as the first alternative) so users can switch forecast providers.
+- Add **Current location** to Weather: Wicket holds the macOS location permission (asked once when the user picks it) and passes a city-level location with Weather requests; the default city stays as the fallback.
 - Add an inline rich root-row primitive (a bounded native strip of labeled values + SF Symbols inside a `prominent: true` root item, inspired by Raycast macOS v2.12's inline Weather card) to unlock glanceable inline Weather, Time Zones, and System Monitor results without embedding WebKit in the root list.
 
 ## Throughout
