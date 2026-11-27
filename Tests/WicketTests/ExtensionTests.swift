@@ -117,9 +117,6 @@ func answering(_ title: String) -> String {
   #expect(!manifest.matches("hello🌍"))
   #expect(manifest.matches("🌍hello"))
 
-  let roundTrip = try decoder.decode(ExtensionManifest.self, from: JSONEncoder().encode(manifest))
-  #expect(roundTrip == manifest)
-  #expect(roundTrip.matches("🌍hello"))
   let differentPattern = try decoder.decode(
     ExtensionManifest.self,
     from: Data(#"{"contract":2,"name":"Pattern","command":["echo"],"match":"^x"}"#.utf8))

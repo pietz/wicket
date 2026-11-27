@@ -1,6 +1,6 @@
 import Foundation
 
-enum ExtensionSetting: Codable, Sendable, Equatable {
+enum ExtensionSetting: Decodable, Sendable, Equatable {
   case field(Field)
   case entries(SettingList)
 
@@ -11,12 +11,6 @@ enum ExtensionSetting: Codable, Sendable, Equatable {
       self = .entries(try SettingList(from: decoder))
     } else {
       self = .field(try Field(from: decoder))
-    }
-  }
-  func encode(to encoder: any Encoder) throws {
-    switch self {
-    case .field(let field): try field.encode(to: encoder)
-    case .entries(let list): try list.encode(to: encoder)
     }
   }
   var list: SettingList? { if case .entries(let list) = self { list } else { nil } }
@@ -35,8 +29,7 @@ enum ExtensionSetting: Codable, Sendable, Equatable {
   }
 }
 
-struct SettingList: Codable, Sendable, Equatable {
-  let type: String
+struct SettingList: Decodable, Sendable, Equatable {
   let name: String
   let description: String
   let fields: [Field]

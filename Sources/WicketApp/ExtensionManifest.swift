@@ -1,6 +1,6 @@
 import Foundation
 
-struct ExtensionManifest: Codable, Sendable, Equatable {
+struct ExtensionManifest: Decodable, Sendable, Equatable {
   /// The version of this contract the manifest is written for; absent means 1. A newer one is read
   /// before any other key, so it says which Wicket it needs instead of failing as broken.
   let contract: Int
@@ -33,20 +33,15 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   /// (`Permissions.gate`).
   let permissions: [Permission]
 
-  private struct MatchPattern: Encodable, Sendable, Equatable {
+  private struct MatchPattern: Sendable, Equatable {
     let pattern: String
     // NSRegularExpression is immutable and thread-safe.
     let regex: NSRegularExpression
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.pattern == rhs.pattern }
-
-    func encode(to encoder: any Encoder) throws {
-      var container = encoder.singleValueContainer()
-      try container.encode(pattern)
-    }
   }
 
-  struct ItemList: Codable, Sendable, Equatable {
+  struct ItemList: Decodable, Sendable, Equatable {
     let empty: Row?
   }
 

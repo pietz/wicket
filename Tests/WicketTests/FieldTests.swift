@@ -59,8 +59,6 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   #expect(!list.accepts(["scale": "plain", "size": "1.2"]))
   #expect(!list.accepts(["scale": "log", "size": "2.25"]))
   #expect(command.fields[1].canonical("1.250") == "1.25")
-  let roundTrip = try JSONDecoder().decode(ExtensionManifest.self, from: JSONEncoder().encode(command))
-  #expect(roundTrip == command)
 }
 
 /// A logging extension: every request is appended to `log.jsonl`, and the view lists one item that
