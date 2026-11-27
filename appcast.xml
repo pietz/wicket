@@ -6,6 +6,21 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.9.3</title>
+      <pubDate>Fri, 27 Nov 2026 09:55:22 +0000</pubDate>
+      <sparkle:version>54</sparkle:version>
+      <sparkle:shortVersionString>0.9.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Dictation that starts reliably
+
+- **USB microphones no longer fail with "Couldn't convert microphone audio."** Webcam and USB mics could fail right after Wicket opened, roughly every other time. Voice now follows the format change macOS makes when the microphone starts, and keeps the first syllable.
+- **No false "No sound" errors.** Microphones with noise suppression or a noise gate stay silent until you speak, and Wicket no longer stops them after a second. "No sound from …" now appears only if the microphone stayed completely silent until listening ended.
+- **The listening window starts when audio actually arrives,** so a slow speech-model start no longer cuts you off before you've begun.
+- Voice attempts now leave a clearer trace in the system log to make future microphone problems quicker to diagnose. It records formats and timings only, never what you said.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.9.3</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.9.3/Wicket-0.9.3.dmg" type="application/octet-stream" sparkle:edSignature="4+YAuTXq9m/qlatLsEYXesMV1+2hLCNWvtteBeSOsdtfw92CJkIeFHu6tzhx3jV7ShUKdj+48kyhWvPBqOGtBw==" length="4703550"/>
+    </item>
+    <item>
       <title>Wicket 0.9.2</title>
       <pubDate>Thu, 26 Nov 2026 15:23:10 +0000</pubDate>
       <sparkle:version>53</sparkle:version>
