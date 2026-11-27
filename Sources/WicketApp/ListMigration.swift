@@ -18,7 +18,7 @@ import Foundation
   }
 
   static func run(
-    _ commands: [String: ExtensionCommand], locations: ExtensionHost.Locations, root: URL,
+    _ commands: [String: ExtensionCommand], locations: [String: ExtensionHost.Location], root: URL,
     store: ConfigurationStore
   ) -> Result {
     var result = Result()
@@ -35,7 +35,7 @@ import Foundation
     let windowID = "extension:window"
     if let list = windowMoveList(commands[windowID]),
       hasLegacyWindowMoves(configuration.extensions["window"], list: list),
-      canMigrateWindowMoves(locations.extensions[windowID]?.source, root: root)
+      canMigrateWindowMoves(locations[windowID]?.source, root: root)
     {
       do {
         configurationChanged = try migrateWindowMoves(list, file: file)

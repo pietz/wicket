@@ -170,7 +170,8 @@ private let linksID = "extension:links-search"
   model.extensions.moveToTrash = {
     try FileManager.default.moveItem(at: $0, to: root.appending(path: "trash/local"))
   }
-  try pane.trashExtension("extension:local", confirmed: model.extensions.localCopies["extension:local"])
+  try pane.trashExtension(
+    "extension:local", confirmed: model.extensions.locations["extension:local"]?.localCopy)
   await model.extensions.reload()
   #expect(
     model.extensions.commands["extension:local"] == nil

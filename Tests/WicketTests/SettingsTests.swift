@@ -546,7 +546,7 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   #expect(model.navigator.input == prompt)
   #expect(model.agent.active && model.agent.question.isEmpty && !model.agent.busy)
 
-  let localCopy = try #require(host.localCopies[id])
+  let localCopy = try #require(host.locations[id]?.localCopy)
   host.moveToTrash = { _ in throw CocoaError(.fileWriteNoPermission) }
   #expect(throws: CocoaError.self) { try pane.trashExtension(id, confirmed: localCopy) }
   #expect(host.locations[id]?.shadowsBuiltIn == true)
@@ -611,7 +611,7 @@ func retiredCopiesCanBeTrashedWithoutMovingUnrelatedFiles(keepItems: Bool) async
   let builtIn = try #require(host.commands[id])
   #expect(builtIn.folder == host.locations[id]?.bundledFolder && host.problems[id] == nil)
   #expect(host.locations[id]?.shadowsBuiltIn == false)
-  #expect(host.localCopies[id]?.retired == true)
+  #expect(host.locations[id]?.localCopy?.retired == true)
   #expect(host.ownFolder(id).map { Edition.sameFolder($0, local) } == true)
 
   if keepItems {
@@ -650,7 +650,7 @@ func retiredCopiesCanBeTrashedWithoutMovingUnrelatedFiles(keepItems: Bool) async
   let host = ExtensionHost(folder: root, bundled: bundledExtensions)
   let id = "extension:units"
   await host.reload()
-  let confirmed = try #require(host.localCopies[id])
+  let confirmed = try #require(host.locations[id]?.localCopy)
   #expect(confirmed.retired)
   // Repaired into a valid override while the dialog was open.
   try files.removeItem(at: local)

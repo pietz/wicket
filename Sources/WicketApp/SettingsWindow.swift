@@ -704,10 +704,10 @@ struct SettingsPane: View {
   /// to take its place, the selection moves to a neighbour.
   private func trashButton(_ id: String, label: String) -> some View {
     let restores = extensions.locations[id]?.bundledFolder != nil
-    let retired = extensions.localCopies[id]?.retired == true
+    let retired = extensions.locations[id]?.source == .retired
     let item = restores ? "the \(retired ? "old" : "local") copy of “\(title(id))”" : "“\(title(id))”"
     return Button(label) {
-      trashing = extensions.localCopies[id]
+      trashing = extensions.locations[id]?.localCopy
       confirmingTrash = true
     }
     .disabled(store.problem != nil)

@@ -132,7 +132,7 @@ final class ExtensionHost {
   }
   struct LocalCopy: Equatable, Sendable {
     let folder: URL
-    var retired = false
+    let retired: Bool
   }
 
   enum Source: String, Encodable, Sendable {
@@ -146,15 +146,11 @@ final class ExtensionHost {
     let localFolder: URL?
     let bundledFolder: URL?
     var shadowsBuiltIn: Bool { source == .localOverride }
-  }
-  struct Locations: Sendable {
-    var copies: [String: LocalCopy] = [:]
-    var extensions: [String: Location] = [:]
+    var localCopy: LocalCopy? { localFolder.map { LocalCopy(folder: $0, retired: source == .retired) } }
   }
 
   private(set) var commands: [String: ExtensionCommand] = [:]
   private(set) var problems: [String: Problem] = [:]
-  private(set) var localCopies: [String: LocalCopy] = [:]
   private(set) var locations: [String: Location] = [:]
   /// Every discovered extension ID, including ones with invalid manifests.
   var ids: [String] { Array(commands.keys) + problems.keys.filter { commands[$0] == nil } }
@@ -175,7 +171,7 @@ final class ExtensionHost {
   /// The `extensions` of config.json: each folder's saved settings.
   private var settings: [String: JSONValue] = [:]
   private var discoveryProblems: [String: Problem] = [:]
-  var migrateLists: (([String: ExtensionCommand], Locations) -> ListMigration.Result)?
+  var migrateLists: (([String: ExtensionCommand], [String: Location]) -> ListMigration.Result)?
   private var migrating = false
   private var retryMigrationOnConfigChange = false
   private var migrationProblems: [String: String] = [:]
@@ -300,8 +296,7 @@ final class ExtensionHost {
           scanWaiters = []
         }
         // FSEvents report cache and log writes too. Only a changed catalog can restart launcher work.
-        if localCopies != locations.copies { localCopies = locations.copies }
-        if self.locations != locations.extensions { self.locations = locations.extensions }
+        if self.locations != locations { self.locations = locations }
         discoveryProblems = problems
         let changed = install(commands.mapValues(configured))
         if !changed.isEmpty { onCatalogChange?(changed) }
@@ -363,11 +358,11 @@ final class ExtensionHost {
   }
   /// Try the local manifest first.
   nonisolated static func discover(_ root: URL, bundled: URL?) -> (
-    [String: ExtensionCommand], [String: Problem], Locations
+    [String: ExtensionCommand], [String: Problem], [String: Location]
   ) {
     var commands: [String: ExtensionCommand] = [:]
     var problems: [String: Problem] = [:]
-    var locations = Locations()
+    var locations: [String: Location] = [:]
     // Listing does not follow a linked root itself.
     func entries(_ root: URL?) -> [URL] {
       guard let root = root?.resolvingSymlinksInPath() else { return [] }
@@ -392,9 +387,8 @@ final class ExtensionHost {
       let override = local.flatMap { hasManifest($0) ? $0 : nil }
       guard var folder = override ?? builtIns[name] else { continue }
       let id = "extension:" + name
-      locations.extensions[id] = .init(
+      locations[id] = .init(
         source: override == nil ? .bundled : .local, localFolder: override, bundledFolder: builtIns[name])
-      if let override { locations.copies[id] = LocalCopy(folder: override) }
       // Addresses name these host targets, so a folder of that name could never be reached.
       if Address.reserved.contains(name.lowercased()) {
         problems[id] = Problem(manifest: "\(folder.path)\n\(name) is a reserved name. Rename the folder.")
@@ -403,7 +397,7 @@ final class ExtensionHost {
       let manifest: ExtensionManifest
       do {
         manifest = try readManifest(folder)
-        if override != nil && builtIns[name] != nil { locations.extensions[id]?.source = .localOverride }
+        if override != nil && builtIns[name] != nil { locations[id]?.source = .localOverride }
       } catch {
         let reason = error is ExtensionManifest.ContractError ? "\(error)" : "Invalid wicket.json: \(error)"
         let detail = "\(folder.path)\n\(reason)"
@@ -419,11 +413,10 @@ final class ExtensionHost {
           continue
         }
         if retiredFiles(in: override) != nil {
-          locations.copies[id]?.retired = true
-          locations.extensions[id]?.source = .retired
+          locations[id]?.source = .retired
         } else {
           problems[id] = Problem(manifest: detail, usingBundled: true)
-          locations.extensions[id]?.source = .brokenFallback
+          locations[id]?.source = .brokenFallback
         }
         folder = builtIn
         manifest = fallback
@@ -496,13 +489,13 @@ final class ExtensionHost {
 
   /// A local copy has a manifest.
   func ownFolder(_ id: String) -> URL? {
-    localCopies[id]?.folder
+    locations[id]?.localFolder
   }
 
   /// A retired override can be removed without interrupting its built-in or moving unrelated files.
   /// `confirmed` is the copy the user agreed to remove; if a rescan changed it since, nothing moves.
   func trash(_ id: String, confirmed: LocalCopy? = nil) throws {
-    guard let copy = localCopies[id] else {
+    guard let copy = locations[id]?.localCopy else {
       throw ExtensionFailure("Only your own extensions can be moved to the Trash.")
     }
     if let confirmed, confirmed != copy {
