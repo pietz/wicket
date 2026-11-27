@@ -416,7 +416,7 @@ private func path(_ folder: URL) -> String { folder.resolvingSymlinksInPath().pa
   // The Python units 0.1.3 to 0.3.4 installed: still on disk, no longer what runs.
   let old = extensions.appending(path: "units")
   try FileManager.default.createDirectory(at: extensions, withIntermediateDirectories: true)
-  try FileManager.default.copyItem(at: fixtureURL("units-0.3"), to: old)
+  try FileManager.default.copyItem(at: fixtureURL("retired-units"), to: old)
   var (commands, problems, _) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
   #expect(path(commands["extension:units"]) == path(bundledExtensions.appending(path: "units")))
   #expect(commands["extension:units"]?.manifest.command == ["./main"])
