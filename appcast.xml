@@ -6,6 +6,19 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.9.7</title>
+      <pubDate>Fri, 27 Nov 2026 22:04:18 +0000</pubDate>
+      <sparkle:version>58</sparkle:version>
+      <sparkle:shortVersionString>0.9.7</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Glass that matches macOS
+
+- **Like your desktop widgets.** Wicket's glass now looks like the widgets on your desktop: the wallpaper's colours stay rich instead of turning grey, with the same soft lens effect. Dark mode is a dark tint, light mode a light one for dark text, with the same look in both.
+- **The sliders still work, with a new middle.** Settings ▸ General ▸ Transparency and Blur now have the new look in the middle, which is the new default. Drag left for a more solid or sharper panel, right for clearer or softer glass. If you changed these sliders before, your values carry over but look different now. Put both sliders in the middle to get the new look.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.9.7</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.9.7/Wicket-0.9.7.dmg" type="application/octet-stream" sparkle:edSignature="dAIZWnTASBUv0gbJDx4V1zF6zuwHSSuMZndx6gE3ZkIH19e0Tul7axdpy+ecs8BJ+b0oXALRP9dGNBCgLGfKBw==" length="4946791"/>
+    </item>
+    <item>
       <title>Wicket 0.9.6</title>
       <pubDate>Fri, 27 Nov 2026 19:48:06 +0000</pubDate>
       <sparkle:version>57</sparkle:version>
