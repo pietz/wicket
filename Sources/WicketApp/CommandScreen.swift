@@ -284,10 +284,10 @@ enum CommandOutcome {
   }
 
   func makePage(_ view: ProviderView) -> Page? {
-    guard let body = view.pageBody(reservedFields: descriptor?.fields ?? []) else { return nil }
+    let controls = view.pageControls(reservedFields: descriptor?.fields ?? [])
+    guard view.body != nil || !controls.isEmpty else { return nil }
     var page = Page(
-      body: body, items: view.items, runs: true, declaredFields: descriptor == nil ? [] : view.fields ?? [],
-      reservedFields: descriptor?.fields ?? [])
+      body: view.body ?? "", items: view.items, runs: true, controls: descriptor == nil ? [] : controls)
     page.targetRevision = UUID().uuidString
     return page
   }
@@ -339,7 +339,7 @@ enum CommandOutcome {
 
   /// Its visible Markdown body.
   var body: String? {
-    problem == nil && page != nil ? shown.view.pageBody(reservedFields: descriptor?.fields ?? []) : nil
+    problem == nil && page != nil ? shown.view.body ?? "" : nil
   }
   /// The view's own actions, in the header beside the body.
   var viewActions: [RowAction] { body == nil ? [] : shown.view.actions }

@@ -52,10 +52,9 @@ import WebKit
     ~~~
     Code at the end
     """
-  let fields = try #require(view.fields)
-  let page = Page(
-    body: body, runs: true, declaredFields: fields,
+  let controls = view.pageControls(
     reservedFields: [.init(name: "overlap", type: .bool, description: "Overlap")])
+  let page = Page(body: body, runs: true, controls: controls)
   #expect(
     page.targets.map(\.id) == [
       "#field:toggle", "#0", "#field:dial", "#field:when", "#field:popup", "#field:unplaced", "#field:last",
@@ -89,9 +88,9 @@ import WebKit
   } else {
     Issue.record("Expected an item detail")
   }
-  #expect(Page(body: body, runs: false, declaredFields: fields).fields.isEmpty)
-  #expect(Page(body: body, runs: true, copies: false, declaredFields: fields).fields.isEmpty)
-  #expect(Page(body: body, runs: true, streaming: true, declaredFields: fields).fields.isEmpty)
+  #expect(Page(body: body, runs: false, controls: controls).fields.isEmpty)
+  #expect(Page(body: body, runs: true, copies: false, controls: controls).fields.isEmpty)
+  #expect(Page(body: body, runs: true, streaming: true, controls: controls).fields.isEmpty)
   #expect(!AnswerMarkdown.html(body).contains("data-key="))
 }
 
@@ -125,8 +124,9 @@ import WebKit
     .init(name: "radio", type: .choice, options: [.init("a"), .init("b")], value: "a"),
   ]
   let lines = (0..<80).map { "Line \($0)" }.joined(separator: "\n\n")
+  let controls = ProviderView(fields: fields).pageControls()
   let first = Page(
-    body: "\(range)\n\(toggle)\n\(select)\n\(segments)\n\n\(lines)", runs: true, declaredFields: fields)
+    body: "\(range)\n\(toggle)\n\(select)\n\(segments)\n\n\(lines)", runs: true, controls: controls)
   await renderer.render(first, turn: "controls")
   let web = try #require(renderer.page)
   func run(_ script: String) async throws -> Any? {
@@ -170,7 +170,7 @@ import WebKit
 
       \(lines)
       """,
-    runs: true, declaredFields: fields)
+    runs: true, controls: controls)
   next.targetRevision = "rendered reply"
   await renderer.render(next, turn: "controls")
   #expect(
@@ -932,6 +932,8 @@ import WebKit
     {
       "body": "Status\\n<field name=\\"sync\\"/>",
       "fields": [
+        null,
+        "invalid declaration",
         {"name": "sync", "type": "bool", "action": true},
         {"name": "sync", "type": "choice", "options": 42}
       ]
@@ -939,7 +941,7 @@ import WebKit
     """
   let view = try JSONDecoder().decode(ProviderView.self, from: Data(json.utf8))
   #expect(view.fields?.isEmpty == true)
-  let page = Page(body: view.body ?? "", runs: true, declaredFields: view.fields ?? [])
+  let page = Page(body: view.body ?? "", runs: true, controls: view.pageControls())
   #expect(page.fields.isEmpty)
 }
 

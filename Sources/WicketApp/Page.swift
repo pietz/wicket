@@ -42,7 +42,7 @@ struct Page: Equatable, Sendable {
   /// `copies`, as beside a list, which takes no clicks, code blocks are only shown.
   init(
     body: String, items: [Row] = [], runs: Bool, streaming: Bool = false, picture: URL? = nil,
-    copies: Bool = true, declaredFields: [Field] = [], reservedFields: [Field] = []
+    copies: Bool = true, controls preparedControls: [Control] = []
   ) {
     self.picture = picture
     let bytes = Array(body.utf8)
@@ -52,17 +52,7 @@ struct Page: Equatable, Sendable {
     var symbols: [String] = []
     var code: [Code] = []
     var fields: [String: Control] = [:]
-    let controls: [Control]
-    if runs, !streaming, copies, !declaredFields.isEmpty {
-      let reserved = Set(reservedFields.map(\.name))
-      let declarations = Dictionary(grouping: declaredFields, by: \.name)
-      controls = declaredFields.compactMap { field in
-        guard declarations[field.name]?.count == 1, !reserved.contains(field.name) else { return nil }
-        return Control(field)
-      }
-    } else {
-      controls = []
-    }
+    let controls = runs && !streaming && copies ? preparedControls : []
     let byName = Dictionary(uniqueKeysWithValues: controls.map { ($0.name, $0) })
     var cursor = 0
     // Most replies have no tag or code fence: they skip Markdown's parse.

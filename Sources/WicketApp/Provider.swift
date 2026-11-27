@@ -64,9 +64,9 @@ struct ProviderView: Codable, Sendable, Equatable {
   func pageControls(reservedFields: [Field] = []) -> [Page.Control] {
     guard let fields, !fields.isEmpty else { return [] }
     let reserved = Set(reservedFields.map(\.name))
-    let counts = Dictionary(grouping: fields, by: \.name).mapValues(\.count)
+    let declarations = Dictionary(grouping: fields, by: \.name)
     return fields.compactMap { field in
-      guard counts[field.name] == 1, !reserved.contains(field.name) else { return nil }
+      guard declarations[field.name]?.count == 1, !reserved.contains(field.name) else { return nil }
       return Page.Control(field)
     }
   }
@@ -111,15 +111,9 @@ struct ProviderView: Codable, Sendable, Equatable {
     let body = try c.decodeIfPresent(String.self, forKey: .body)
     let items = try c.decodeIfPresent([Row].self, forKey: .items)
     var fields: [Field]?
-    if c.contains(.fields), try !c.decodeNil(forKey: .fields) {
-      var declarations = try c.nestedUnkeyedContainer(forKey: .fields)
-      var entries: [FieldEntry] = []
+    if let entries = try c.decodeIfPresent([FieldEntry].self, forKey: .fields) {
       // A malformed declaration should leave the body and the other controls usable, while still
       // counting its name so a duplicate valid sibling is dropped too.
-      while !declarations.isAtEnd {
-        let declaration = try declarations.superDecoder()
-        if let entry = try? FieldEntry(from: declaration) { entries.append(entry) }
-      }
       var nameCounts: [String: Int] = [:]
       for entry in entries {
         if let name = entry.name { nameCounts[name, default: 0] += 1 }
