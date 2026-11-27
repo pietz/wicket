@@ -454,6 +454,16 @@ import WebKit
   await model.finish()
 }
 
+@MainActor private func openCanvas(in root: URL) async -> (LauncherModel, RecordingSurface) {
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  model.navigator.go(Address(id: "test"))
+  await model.navigator.settled()
+  return (model, surface)
+}
+
 @MainActor @Test func canvasRejectsAnEntireRunWithAnInvalidOverride() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
@@ -466,13 +476,8 @@ import WebKit
       {"fields":[{"name":"environment","type":"choice","options":[{"value":"production","label":"Production"}]},{"name":"confirm","type":"bool"}],"body":"<field name=\\"environment\\"/>\\n<field name=\\"confirm\\"/>\\n<row title=\\"Deploy to staging\\" run=\\"deploy?environment=staging&confirm=true\\"/>\\n<row title=\\"Deploy to production\\" run=\\"deploy?environment=production&confirm=true\\"/>"}
       PAGE
       """, fields: ["fields": [], "submit": true])
-  let model = LauncherModel.testing(in: root, bundled: nil)
-  await model.extensions.reload()
+  let (model, surface) = await openCanvas(in: root)
   let navigator = model.navigator
-  let surface = RecordingSurface()
-  navigator.surface = surface
-  navigator.go(Address(id: "test"))
-  await navigator.settled()
   let page = try #require(surface.presentation.page)
   let revision = try #require(page.targetRevision)
   try #require(navigator.clickTarget("#0", revision: revision))
@@ -560,13 +565,8 @@ import WebKit
       {"fields":[{"name":"environment","type":"choice","options":[{"value":"production","label":"Production"}]}],"body":"<field name=\\"environment\\"/>\\n<row title=\\"Break\\" run=\\"break\\"/>"}
       PAGE
       """, fields: ["fields": [], "submit": true])
-  let model = LauncherModel.testing(in: root, bundled: nil)
-  await model.extensions.reload()
+  let (model, surface) = await openCanvas(in: root)
   let navigator = model.navigator
-  let surface = RecordingSurface()
-  navigator.surface = surface
-  navigator.go(Address(id: "test"))
-  await navigator.settled()
   let revision = try #require(surface.presentation.page?.targetRevision)
   try #require(navigator.clickTarget("#0", revision: revision))
   await navigator.settled()
@@ -597,13 +597,8 @@ import WebKit
       esac
       printf '%s\n' '{"fields":[{"name":"environment","type":"choice","options":[{"value":"production","label":"Production"},{"value":"staging","label":"Staging"}]}]}'
       """, fields: ["submit": true])
-  let model = LauncherModel.testing(in: root, bundled: nil)
-  await model.extensions.reload()
+  let (model, surface) = await openCanvas(in: root)
   let navigator = model.navigator
-  let surface = RecordingSurface()
-  navigator.surface = surface
-  navigator.go(Address(id: "test"))
-  await navigator.settled()
   navigator.editInput("release")
   navigator.changeField(
     .init(name: "environment", value: "staging", phase: .commit), turn: surface.presentation.pageTurn)
@@ -634,13 +629,8 @@ import WebKit
       esac
       printf '%s\n' '{"fields":[{"name":"environment","type":"choice","options":[{"value":"production","label":"Production"},{"value":"staging","label":"Staging"}]}]}'
       """, fields: ["submit": true])
-  let model = LauncherModel.testing(in: root, bundled: nil)
-  await model.extensions.reload()
+  let (model, surface) = await openCanvas(in: root)
   let navigator = model.navigator
-  let surface = RecordingSurface()
-  navigator.surface = surface
-  navigator.go(Address(id: "test"))
-  await navigator.settled()
   try #require(surface.presentation.page?.fields["environment"] != nil)
 
   let url = try #require(URL(string: "wicket://test?input=linked"))
