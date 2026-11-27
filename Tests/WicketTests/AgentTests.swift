@@ -630,6 +630,15 @@ func codexConversationRunsThroughARealProcessAndAnswersTheCard(_ allow: Bool) as
   #expect(ContinuousClock.now - start < .seconds(10))
 }
 
+@Test func stderrTailCountsBytesAndKeepsCharactersSplitAcrossReads() {
+  var tail = Data(repeating: 120, count: 4096)
+  let character = "☃"
+  tail.appendStderr(Data(character.utf8.prefix(2)))
+  tail.appendStderr(Data(character.utf8.suffix(1)))
+  #expect(tail.count == 4096)
+  #expect(String(decoding: tail, as: UTF8.self) == String(repeating: "x", count: 4093) + character)
+}
+
 @Test func readingStopsAtTheLimitInsteadOfQueueingAFlood() async throws {
   let flood = try Launch.start(
     URL(fileURLWithPath: "/usr/bin/yes"), [], in: FileManager.default.temporaryDirectory,

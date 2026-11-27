@@ -3,11 +3,13 @@ import Synchronization
 
 /// The last 4 KiB of stderr, readable at any moment: a descendant may keep stderr from ever ending.
 private final class StderrTail: Sendable {
-  private let text = Mutex("")
+  private let bytes = Mutex(Data())
   func add(_ chunk: Data) {
-    text.withLock { $0 = String(($0 + String(decoding: chunk, as: UTF8.self)).suffix(4096)) }
+    bytes.withLock { $0.appendStderr(chunk) }
   }
-  var said: String { text.withLock { $0 }.trimmingCharacters(in: .whitespacesAndNewlines) }
+  var said: String {
+    String(decoding: bytes.withLock { $0 }, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+  }
 }
 
 /// A child process that speaks one JSON value per line: framing bounded at 4 MiB as the bytes are read,

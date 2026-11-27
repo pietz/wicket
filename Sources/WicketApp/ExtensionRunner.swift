@@ -1,39 +1,6 @@
 import CryptoKit
 import Darwin
 import Foundation
-import Synchronization
-
-/// Counts every byte as it arrives and keeps what the limit allows. The reader stops at the limit and
-/// stops the process at once.
-private final class ExtensionOutput: Sendable {
-  struct State {
-    var data = Data()
-    var count = 0
-  }
-  private let state = Mutex(State())
-  let limit: Int
-  let tail: Bool
-  init(limit: Int, tail: Bool = false) {
-    self.limit = limit
-    self.tail = tail
-  }
-  func read(_ handle: FileHandle, overflow: @escaping @Sendable () -> Void) -> Task<Void, Never> {
-    Task {
-      for await chunk in handle.chunks(limit: limit, exceeded: overflow) {
-        state.withLock { state in
-          state.count += chunk.count
-          if self.tail {
-            state.data = Data((state.data + chunk).suffix(4096))
-          } else if state.count <= self.limit {
-            state.data.append(chunk)
-          }
-        }
-      }
-    }
-  }
-  var data: Data { state.withLock { $0.data } }
-  var exceeded: Bool { state.withLock { $0.count > limit } }
-}
 
 struct ExtensionRunner: Sendable {
   let dataDirectory: URL
@@ -86,18 +53,16 @@ struct ExtensionRunner: Sendable {
     let started = try Launch.start(
       executable, Array(argv.dropFirst()), in: command.folder, environment: environment)
     let tree = started.tree
-    let out = ExtensionOutput(limit: outputLimit)
-    let err = ExtensionOutput(limit: stderrLimit, tail: true)
     let stop: @Sendable () -> Void = { _ = tree.stop(after: .zero, grace: .milliseconds(100)) }
-    let stdout = out.read(started.stdout, overflow: stop)
-    let stderr = err.read(started.stderr, overflow: stop)
+    let stdout = started.stdout.collect(limit: outputLimit, overflow: stop)
+    let stderr = started.stderr.collect(limit: stderrLimit, tail: true, overflow: stop)
     tree.write(try JSONEncoder().encode(request) + Data([10]))
     tree.closeInput()
     return try await withTaskCancellationHandler {
       let exit = await tree.exit.value(within: deadline)
       _ = await tree.stop(after: .zero, grace: .milliseconds(100)).value
-      await stdout.value
-      await stderr.value
+      let out = await stdout.value
+      let err = await stderr.value
       try Task.checkCancellation()
       let diagnostic = String(decoding: err.data, as: UTF8.self)
       func failure(_ message: String, nothingShown: Bool = false) -> ExtensionFailure {

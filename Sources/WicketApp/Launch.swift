@@ -56,24 +56,38 @@ enum Launch {
     async throws -> (exit: Exit, output: Data)?
   {
     let started = try start(executable, arguments, in: folder, environment: environment())
+    // Read concurrently, so a full diagnostic pipe cannot deadlock the deadline.
+    let output = started.stdout.collect()
+    let diagnostic = Task { for await _ in started.stderr.chunks() {} }
     if let input { started.tree.write(input) }
     started.tree.closeInput()
-    // Read concurrently, so a full diagnostic pipe cannot deadlock the deadline.
-    let output = Task {
-      var data = Data()
-      for await chunk in started.stdout.chunks() { data.append(chunk) }
-      return data
-    }
-    let diagnostic = Task { for await _ in started.stderr.chunks() {} }
     let exit = await started.tree.exit.value(within: limit)
     _ = await started.tree.stop(after: .zero, grace: .milliseconds(100)).value
     _ = await diagnostic.value
-    let data = await output.value
+    let data = await output.value.data
     return exit.map { ($0, data) }
   }
 }
 
 extension FileHandle {
+  func collect(limit: Int = .max, tail: Bool = false, overflow: @escaping @Sendable () -> Void = {})
+    -> Task<(data: Data, exceeded: Bool), Never>
+  {
+    Task {
+      var data = Data()
+      var count = 0
+      for await chunk in chunks(limit: limit, exceeded: overflow) {
+        count += chunk.count
+        if tail {
+          data.appendStderr(chunk)
+        } else if count <= limit {
+          data.append(chunk)
+        }
+      }
+      return (data, count > limit)
+    }
+  }
+
   /// The bytes as they arrive, until EOF. Blocking reads run on a Dispatch queue, so a pipe
   /// nobody writes to never holds a thread of Swift's cooperative pool.
   ///
@@ -101,5 +115,13 @@ extension FileHandle {
         continuation.finish()
       }
     }
+  }
+}
+
+extension Data {
+  /// Keep bytes until the diagnostic is read, since a UTF-8 character can span chunks.
+  mutating func appendStderr(_ chunk: Data) {
+    append(chunk)
+    if count > 4096 { self = Data(suffix(4096)) }
   }
 }
