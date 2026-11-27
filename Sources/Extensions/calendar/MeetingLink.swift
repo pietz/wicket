@@ -37,7 +37,7 @@ func meetingLink(_ text: String) -> MeetingLink? {
   let service: String
   // A meeting code, or a lookup that resolves one; Meet's other pages only describe the service.
   if host == "meet.google.com",
-    path.wholeMatch(of: #/\/([a-z]{3}-[a-z]{4}-[a-z]{3}|lookup\/[a-z0-9]+)/#) != nil
+    path.wholeMatch(of: #/\/([a-z]{3}-[a-z]{4}-[a-z]{3}|lookup\/[a-z0-9]+(-[a-z0-9]+)*)/#) != nil
   {
     service = "Google Meet"
   } else if on("zoom.us") || on("zoomgov.com"), under("/j/", "/my/", "/w/", "/s/", "/wc/") {

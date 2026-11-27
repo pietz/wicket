@@ -207,6 +207,7 @@ private func detailOf(_ row: Row?) -> String? {
     ("https://meet.google.com/abc-defg-hij", "Google Meet"),
     ("https://meet.google.com/ABC-defg-hij?authuser=1", "Google Meet"),
     ("https://meet.google.com/lookup/b6xyz7abcd", "Google Meet"),
+    ("https://meet.google.com/lookup/quick-sync", "Google Meet"),
     ("https://us02web.zoom.us/j/8123?pwd=x", "Zoom"),
     ("https://zoom.us/my/ada).", "Zoom"),
     (
@@ -304,6 +305,20 @@ private func detailOf(_ row: Row?) -> String? {
   let again = try week.view(
     action: "read-agenda", snapshot: .loaded(calendars: calendars, events: twice + twice))
   #expect(Set(again.items.map(\.id)).count == 2)
+}
+
+@Test func calendarReadCapsLongTitles() throws {
+  let week = try CalendarWeek.recorded()
+  let events = (0..<100).map { index in
+    AgendaEvent(
+      id: "e\(index)", title: String(repeating: "x", count: 11_000),
+      start: week.now.addingTimeInterval(Double(index + 10) * 60),
+      end: week.now.addingTimeInterval(Double(index + 40) * 60), calendarID: "work")
+  }
+  let output = try week.output(
+    action: "read-agenda",
+    snapshot: .loaded(calendars: [AgendaCalendar(id: "work", title: "Work")], events: events))
+  #expect(output.utf8.count <= readLimit)
 }
 
 @Test func calendarReadStaysWithinTheOutputLimit() throws {

@@ -34,6 +34,7 @@ let eventCap = 100
 /// The agent's read stays under the 1 MiB Wicket reads from a program.
 let readLimit = 1_000_000
 let noteLimit = 4_000
+let titleLimit = 500
 /// A call starting this soon counts as now: Return joins it.
 let joinLead: TimeInterval = 10 * 60
 
@@ -294,8 +295,9 @@ private struct Agenda {
       let facts = ["When: \(when(event))", "Calendar: \(calendarName), \(event.calendarID)"]
       func item(_ facts: [String], joins: [String] = []) -> String {
         let subtitle = [when(event), calendarName].joined(separator: " · ")
+        // Titles are capped too, so the short entries of a full week always fit.
         return
-          #"{"id":\#(quoted(id)),"title":\#(quoted(title(event))),"subtitle":\#(quoted(subtitle)),"detail":\#(quoted(tagsAsText(facts.joined(separator: "\n")))),"actions":[\#(joins.joined(separator: ","))]}"#
+          #"{"id":\#(quoted(id)),"title":\#(quoted(prefix(title(event), bytes: titleLimit))),"subtitle":\#(quoted(subtitle)),"detail":\#(quoted(tagsAsText(facts.joined(separator: "\n")))),"actions":[\#(joins.joined(separator: ","))]}"#
       }
       let links = meetingLinks(in: event)
       var more = event.location.isEmpty ? [] : ["Location: \(event.location)"]
