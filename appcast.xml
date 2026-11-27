@@ -6,6 +6,19 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.9.9</title>
+      <pubDate>Fri, 27 Nov 2026 22:47:13 +0000</pubDate>
+      <sparkle:version>60</sparkle:version>
+      <sparkle:shortVersionString>0.9.9</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Clearer selection and cards
+
+- **The selected row is easy to see on any background.** It was too faint over dark wallpapers and windows in 0.9.8, and also on the light glass. It now has a clear contrast in both modes, in the main list and on pages.
+- **Cards and tiles stay visible over dark backgrounds.** In dark mode they're a light fill with a clear edge instead of a darker well that disappeared over a dark backdrop.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.9.9</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.9.9/Wicket-0.9.9.dmg" type="application/octet-stream" sparkle:edSignature="B6FJz5B+T54/ImNx7GIzkyhc7VDpCr0SDy22OJDx75O9bF18lMax6wQdyfgn5OsDaoMFbLPiImOjy6s7XfAzBg==" length="4948840"/>
+    </item>
+    <item>
       <title>Wicket 0.9.8</title>
       <pubDate>Fri, 27 Nov 2026 22:33:16 +0000</pubDate>
       <sparkle:version>59</sparkle:version>
