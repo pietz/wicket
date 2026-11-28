@@ -6,6 +6,23 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.10.0</title>
+      <pubDate>Sat, 28 Nov 2026 12:27:26 +0000</pubDate>
+      <sparkle:version>61</sparkle:version>
+      <sparkle:shortVersionString>0.10.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>27.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Native pages, made for macOS 27
+
+- **Wicket now needs macOS 27.** If you're still on macOS 26, keep using 0.9.9 until you update macOS.
+- **Answers and extension pages are drawn natively.** Text, tables, charts, switches, sliders and pickers are now macOS's own, on the same glass as before. They look the same as in 0.9.9, but open faster and use less memory, and Wicket no longer runs a web engine in the background.
+- **Selecting and copying text** works across a whole answer, and ⇧← and ⇧→ extend a selection.
+- **Charts are clearer:** repeated labels each get their own place, light-mode lines are a little heavier, and VoiceOver reads each part of a chart. Headings in answers are announced as headings.
+- **Links in answers** always open in this Wicket, never in another installed copy.
+- **`theme.css` is no longer read.** Your appearance comes from Light, Dark or System, your accent colour, and the Transparency and Blur sliders. Your existing file is left untouched.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.10.0</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.10.0/Wicket-0.10.0.dmg" type="application/octet-stream" sparkle:edSignature="JDnkJ2tfR6s1d8Nxru4okHuJGZlqGih5h+UYVgH2mu2my+A2kGXd/I+BEIzcGm3+0PJ1G1EupWGuDrdqUM8qAg==" length="5242216"/>
+    </item>
+    <item>
       <title>Wicket 0.9.9</title>
       <pubDate>Fri, 27 Nov 2026 22:47:13 +0000</pubDate>
       <sparkle:version>60</sparkle:version>
