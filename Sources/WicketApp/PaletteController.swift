@@ -38,6 +38,11 @@ class PalettePanel: NSPanel {
   override func performKeyEquivalent(with event: NSEvent) -> Bool {
     route(event) || super.performKeyEquivalent(with: event)
   }
+  /// ⇧← or ⇧→. Arrow keys also carry the numeric-pad and function flags, so only the modifiers a
+  /// shortcut can hold count.
+  static func extendsSelection(_ event: NSEvent) -> Bool {
+    Shortcut.Modifiers(event.modifierFlags) == .shift && [123, 124].contains(Int(event.keyCode))
+  }
   func route(_ event: NSEvent) -> Bool {
     guard isKeyWindow else { return false }
     // The first key after summon must find the field even before SwiftUI finishes its update.
@@ -45,8 +50,7 @@ class PalettePanel: NSPanel {
     let permissionPending = target?.permissionPending == true
     // A page's read-only text keeps a selection, not typing, and ⇧← and ⇧→ extend that selection.
     let editing = (firstResponder as? NSTextView)?.isEditable == true || firstResponder is NSTextField
-    let extending =
-      firstResponder is NSTextView && flagsOnly == .shift && [123, 124].contains(Int(event.keyCode))
+    let extending = firstResponder is NSTextView && Self.extendsSelection(event)
     if !permissionPending, !editing, !extending,
       flagsOnly.isDisjoint(with: [.command, .control]),
       ![48, 53, 36, 76, 125, 126].contains(Int(event.keyCode)),

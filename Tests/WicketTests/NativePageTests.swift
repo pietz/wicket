@@ -309,3 +309,17 @@ private func kinds(_ blocks: [PageBlock]) -> [String] {
   let heading = text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
   #expect(heading?.headerLevel == 2)
 }
+
+@Test func shiftArrowsExtendAProseSelectionWithTheirKeypadFlags() throws {
+  func arrow(_ keyCode: UInt16, _ flags: NSEvent.ModifierFlags) throws -> NSEvent {
+    try #require(
+      NSEvent.keyEvent(
+        with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
+        characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: keyCode))
+  }
+  // AppKit sends arrows with the numeric-pad and function flags set.
+  #expect(PalettePanel.extendsSelection(try arrow(123, [.shift, .numericPad, .function])))
+  #expect(PalettePanel.extendsSelection(try arrow(124, [.shift])))
+  #expect(!PalettePanel.extendsSelection(try arrow(124, [.numericPad, .function])))
+  #expect(!PalettePanel.extendsSelection(try arrow(124, [.shift, .command, .numericPad])))
+}

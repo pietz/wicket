@@ -188,8 +188,10 @@ struct NativeChart: View {
     let series = chart.series
     let names = series.enumerated().map { chart.seriesName($0.element, $0.offset) }
     let columns = series.indices.filter { series[$0].kind == .column }
+    // Several series keep their legend colours, so only a lone column series can accent one column.
     let chosen =
-      columns.count == 1 ? chart.highlighted(points.filter { $0.series == columns[0] }.map(\.value)) : nil
+      series.count == 1 && columns.count == 1
+      ? chart.highlighted(points.filter { $0.series == columns[0] }.map(\.value)) : nil
     let rules = chart.marks.filter { $0.kind == .rule }
     let points = self.points
     let shown = Set(shownCategories)
