@@ -167,7 +167,7 @@ final class CommandHotKeys {
         problems[target] = (.duplicate, "\(keys.symbols) is already assigned to another hotkey.")
       default: pending.append(binding)
       }
-      if conflicts[target] != nil, let old = inEffect(target), requested[old] != nil {
+      if let old = inEffect(target), old == launcher || (conflicts[target] != nil && requested[old] != nil) {
         release(target)
       }
     }

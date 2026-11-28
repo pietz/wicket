@@ -217,6 +217,15 @@ import Testing
   #expect(bindings.inEffect(right) == three && launcher.inEffect == two)
   live[three]?()
   #expect(pressed.last == right.description)
+
+  // Editing only the launcher shortcut must give it priority over an already registered binding.
+  config.hotkey = one
+  let reloaded = bindings.apply(config, launcher: launcher)
+  #expect(reloaded.launcher == nil && reloaded.bindings != nil)
+  #expect(bindings.latest.map(\.resolution) == [.conflictsWithLauncher, .conflictsWithLauncher])
+  #expect(launcher.inEffect == one && bindings.inEffect(left) == nil && bindings.inEffect(right) == three)
+  live[one]?()
+  #expect(pressed.last == "launcher")
 }
 
 @MainActor @Test func settingAHotkeyRegistersBeforeSavingAndAConflictSavesNothing() throws {
