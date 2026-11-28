@@ -228,8 +228,9 @@ final class CommandHotKeys {
   /// a binding holds the launcher's new keys, so the launcher lets go while the bindings register.
   func apply(_ config: Configuration, launcher: HotKeyRegistration) -> (launcher: String?, bindings: String?)
   {
+    // The launcher may hold nothing yet: another app had its keys at launch.
     let swapping =
-      launcher.inEffect.map { $0 != config.hotkey } == true
+      launcher.inEffect != config.hotkey
       && registrations.values.contains { $0.inEffect == config.hotkey }
     if !swapping {
       let problem = launcher.apply(config.hotkey)

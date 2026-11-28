@@ -228,6 +228,39 @@ import Testing
   #expect(pressed.last == "launcher")
 }
 
+@MainActor @Test func aLauncherWithoutKeysTakesABindingsKeysOnReload() throws {
+  var live: [Shortcut: () -> Void] = [:]
+  final class Registration {
+    let release: () -> Void
+    init(_ release: @escaping () -> Void) { self.release = release }
+    deinit { release() }
+  }
+  let take = { (shortcut: Shortcut, press: @escaping () -> Void) -> AnyObject? in
+    guard live[shortcut] == nil else { return nil }
+    live[shortcut] = press
+    return Registration { live[shortcut] = nil }
+  }
+  var pressed: [String] = []
+  let launcher = HotKeyRegistration { take($0) { pressed.append("launcher") } }
+  let bindings = CommandHotKeys { take($0, $1) }
+  bindings.onPress = { pressed.append($0.description) }
+  let left = HotkeyTarget(target: "extension:window", item: "left")
+  let held = try Shortcut("ctrl+1")
+  let two = try Shortcut("ctrl+2")
+  // Another app holds the launcher's keys at launch, so the launcher registers nothing.
+  live[held] = {}
+  var config = Configuration()
+  config.hotkey = held
+  config.hotkeys = [.init(keys: two, target: left)]
+  #expect(bindings.apply(config, launcher: launcher).launcher != nil && launcher.inEffect == nil)
+  // Moving the launcher to the binding's keys gives them to the launcher.
+  config.hotkey = two
+  let reloaded = bindings.apply(config, launcher: launcher)
+  #expect(reloaded.launcher == nil && launcher.inEffect == two && bindings.inEffect(left) == nil)
+  live[two]?()
+  #expect(pressed == ["launcher"])
+}
+
 @MainActor @Test func settingAHotkeyRegistersBeforeSavingAndAConflictSavesNothing() throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
