@@ -26,7 +26,7 @@ indirect enum PageBlock: Equatable {
   /// A paragraph of nothing but badges.
   case badges([PageItem])
   case card(icon: String?, [PageBlock])
-  case columns([PageBlock], labels: [String])
+  case columns([PageBlock])
   case fields([Page.Control])
   case chart(Chart, pending: Bool)
   case timeline(Timeline)
@@ -39,7 +39,7 @@ indirect enum PageBlock: Equatable {
       items.contains { $0.target == target }
     case .tile(let item): item.target == target
     case .timeline(let timeline): timeline.spans.contains { $0.item.target == target }
-    case .card(_, let blocks), .columns(let blocks, _), .quote(let blocks):
+    case .card(_, let blocks), .columns(let blocks), .quote(let blocks):
       blocks.contains { $0.holds(target) }
     case .list(_, _, let items): items.contains { $0.contains { $0.holds(target) } }
     case .fields(let controls): controls.contains { $0.id == target }
@@ -180,11 +180,7 @@ private struct Builder {
           for block in box.blocks { add(block) }
         }
       case "card": add(.card(icon: Self.value("icon", box.values), box.blocks))
-      default:
-        let labels =
-          Self.value("labels", box.values)?.split(separator: ",", omittingEmptySubsequences: false)
-          .prefix(7).map { $0.trimmingCharacters(in: .whitespaces) } ?? []
-        add(.columns(box.blocks, labels: labels))
+      default: add(.columns(box.blocks))
       }
     }
     for node in children(parent) {

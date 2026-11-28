@@ -66,7 +66,7 @@ struct NativeTimeline: View {
       .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
       .clipped()
     }
-    .frame(height: context.size(250))
+    .frame(height: context.size(306))
     .modifier(PageBox(selected: false))
   }
 }

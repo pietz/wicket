@@ -7,12 +7,6 @@
     {"id": "birthdays", "title": "Birthdays"}
   ],
   "events": [
-    {"id": "workshop", "title": "Team workshop", "start": "2026-11-09T10:00:00+01:00",
-     "end": "2026-11-09T12:00:00+01:00", "calendar": "work", "location": "Studio"},
-    {"id": "museum", "title": "Museum", "start": "2026-11-15T14:00:00+01:00",
-     "end": "2026-11-15T17:00:00+01:00", "calendar": "home"},
-    {"id": "showcase", "title": "Showcase", "start": "2026-11-19T16:00:00+01:00",
-     "end": "2026-11-19T18:00:00+01:00", "calendar": "work"},
     {"id": "studio", "title": "Studio", "start": "2026-11-30T09:00:00+01:00",
      "end": "2026-11-30T12:30:00+01:00", "calendar": "work", "location": "Room 1"},
     {"id": "qa", "title": "QA", "start": "2026-11-30T10:00:00+01:00",

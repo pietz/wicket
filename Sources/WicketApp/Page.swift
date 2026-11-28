@@ -78,7 +78,7 @@ struct Page: Equatable, Sendable {
         targets.append(row)
         return Self.tag(
           name, row.id, values,
-          icon: name == "row" || values.contains(where: { Self.actionNames.contains($0.0) })
+          icon: name != "span" || values.contains(where: { Self.actionNames.contains($0.0) })
             ? row.icon : Self.symbol(values), close: true)
       }
     }
@@ -203,10 +203,10 @@ struct Page: Equatable, Sendable {
 
   /// The slots each tag shows. Rows, tiles, and spans can be targets.
   static let slots: [String: Set<String>] = [
-    "row": ["label", "title", "subtitle", "value"], "tile": ["label", "title", "subtitle", "value", "tone"],
+    "row": ["label", "title", "subtitle", "value"], "tile": ["label", "title", "subtitle", "value"],
     "span": ["label", "title", "subtitle", "value", "lane", "from", "to"],
     "timeline": ["lanes", "from", "to", "now", "now-lane"],
-    "progress": ["label", "value", "percent"], "badge": ["label", "tone"], "columns": ["labels"], "card": [],
+    "progress": ["label", "value", "percent"], "badge": ["label", "tone"], "columns": [], "card": [],
     "field": ["name"],
   ]
   private static let actionable: Set = ["row", "tile", "span"]

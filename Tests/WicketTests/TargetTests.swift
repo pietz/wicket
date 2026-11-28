@@ -344,7 +344,8 @@ import Testing
   #expect(oversized.targets.isEmpty)
 }
 
-/// Bars and badges only show, and have no detail. Every tag keeps only the attributes it draws.
+/// Bars and badges only show, and have no detail; every tag keeps only what its kind shows, and only a
+/// badge has a tone.
 @Test func eachTagKeepsOnlyItsOwnAttributes() {
   let body = """
     <progress label="Disk" value="70%" percent="70" tone="negative" icon="internaldrive" copy="x">Hidden</progress>
@@ -357,7 +358,7 @@ import Testing
     page.source == """
       <progress label="Disk" value="70%" percent="70"/>
       <badge label="Ready" tone="positive"/> after
-      <columns><tile title="A" tone="negative"/></columns>
+      <columns><tile title="A"/></columns>
       """)
   // Still streaming, a bar shows and what it holds does not.
   #expect(

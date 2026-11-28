@@ -83,7 +83,7 @@ struct EvalScore: Codable, Sendable {
       case .badges(let badges): parts["badge", default: 0] += badges.count
       case .chart: parts["chart", default: 0] += 1
       case .card: parts["card", default: 0] += 1
-      case .columns(let cells, _):
+      case .columns(let cells):
         parts["columns", default: 0] += 1
         let tiles = cells.count { if case .tile = $0 { true } else { false } }
         let cards = cells.count { if case .card = $0 { true } else { false } }

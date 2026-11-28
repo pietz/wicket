@@ -166,26 +166,14 @@ private struct PageBlockView: View {
       PageProse(blocks: [block], boxed: true, previous: nil)
     case .rows(let items): PageRows(items: items)
     case .properties(let items): PageProperties(items: items)
-    case .tile(let item):
-      if item == PageItem() {
-        Color.clear.frame(height: 0).accessibilityHidden(true)
-      } else {
-        PageTile(item: item)
-      }
+    case .tile(let item): PageTile(item: item)
     case .progresses(let items): PageProgresses(items: items)
     case .badges(let items):
       PageFlow(spacing: 6) { ForEach(items.indices, id: \.self) { PageBadge(item: items[$0]) } }
     case .card(let icon, let blocks): PageCard(icon: icon, blocks: blocks)
-    case .columns(let blocks, let labels):
+    case .columns(let blocks):
       let wide = blocks.contains { if case .tile = $0 { false } else { true } }
-      PageColumns(
-        minimum: labels.isEmpty ? (wide ? 200 : 72) : 1, spacing: context.size(8),
-        rowSpacing: wide ? nil : context.size(5), most: labels.isEmpty ? (wide ? Int.max : 7) : labels.count
-      ) {
-        ForEach(labels.indices, id: \.self) { index in
-          Text(labels[index]).font(context.small.weight(.medium)).foregroundStyle(Ink.secondary)
-            .lineLimit(1).frame(maxWidth: .infinity)
-        }
+      PageColumns(minimum: wide ? 200 : 72, spacing: context.size(8)) {
         ForEach(blocks.indices, id: \.self) {
           PageBlocks(blocks: [blocks[$0]], boxed: true)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -243,20 +231,13 @@ private struct PageBadge: View {
 /// one selection reads the same on every part of the panel; its edge stays, so the box keeps its shape.
 struct PageBox: ViewModifier {
   let selected: Bool
-  var tint: Color?
   @Environment(\.page) private var context
 
   func body(content: Content) -> some View {
     let shape = RoundedRectangle(cornerRadius: context.size(PageMetrics.cornerRadius), style: .continuous)
     content
-      .background {
-        shape.fill(selected ? Ink.selection : Ink.surface)
-          .overlay { if !selected, let tint { shape.fill(tint.opacity(0.16)) } }
-      }
-      .overlay {
-        shape.strokeBorder(
-          tint?.opacity(0.7) ?? Color(nsColor: .separatorColor), lineWidth: tint == nil ? 0.5 : 1)
-      }
+      .background(selected ? Ink.selection : Ink.surface, in: shape)
+      .overlay { shape.strokeBorder(.separator, lineWidth: 0.5) }
   }
 }
 
@@ -356,10 +337,9 @@ private struct PageTile: View {
     ViewThatFits(in: .horizontal) {
       wide.frame(
         minWidth: 150, idealWidth: 150, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-      narrow.frame(minWidth: 84, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-      compact.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+      narrow.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
-    .modifier(PageBox(selected: selected, tint: item.tone == "accent" ? .accentColor : Ink.tone(item.tone)))
+    .modifier(PageBox(selected: selected))
     .contentShape(.rect)
     .onTapGesture { if let target = item.target { context.click(target) } }
     .accessibilityElement(children: .combine)
@@ -410,27 +390,6 @@ private struct PageTile: View {
     .multilineTextAlignment(.center)
     .padding(.vertical, context.size(10)).padding(.horizontal, 4)
   }
-
-  private var compact: some View {
-    VStack(spacing: 1) {
-      if let label = item.label {
-        Text(label).font(.system(size: context.size(11), weight: .medium)).foregroundStyle(Ink.secondary)
-      }
-      HStack(spacing: 3) {
-        if item.icon != nil { PageIcon(item: item, size: context.size(13)) }
-        if let title = item.title {
-          Text(title).font(.system(size: context.size(13), weight: .semibold))
-        }
-      }
-      if let subtitle = item.subtitle { Text(subtitle).foregroundStyle(Ink.secondary) }
-      if let value = item.value { Text(value).foregroundStyle(Ink.secondary) }
-    }
-    .font(.system(size: context.size(11)))
-    .lineHeight(.multiple(factor: 1))
-    .lineLimit(1)
-    .padding(.vertical, 4).padding(.horizontal, 3)
-  }
-
 }
 
 /// Bars: the system's own, under their label and value. A lone bar takes the page's width; more share a
@@ -495,7 +454,7 @@ private struct PageFields: View {
     VStack(spacing: 2) {
       ForEach(controls, id: \.name) { control in
         HStack(spacing: 12) {
-          Text(control.label)
+          Text(control.label).lineLimit(1)
           Spacer(minLength: 12)
           PageControl(control: control)
         }

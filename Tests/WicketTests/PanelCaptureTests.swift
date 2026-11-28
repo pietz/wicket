@@ -39,7 +39,7 @@ private let states =
     "weather-keyword", "weather-root", "weather-page", "weather-default", "convert-cached-rate",
     "caffeinate-keyword", "caffeinate-off", "caffeinate-draft", "caffeinate-on",
     "caffeinate-started",
-    "calendar-agenda", "calendar-week", "calendar-month", "calendar-empty-day", "calendar-detail",
+    "calendar-agenda", "calendar-week", "calendar-empty-day", "calendar-detail",
     "calendar-denied",
     "extension-targets", "extension-detail-larger", "asking", "asking-extension",
     "extension-error", "fields-empty", "fields-filled", "fields-command", "fields-open",
@@ -74,18 +74,15 @@ private func expectedText(_ name: String) -> [String] {
   if name == "caffeinate-on" { return ["Awake until", "2 h 15 min left", "Turn Off", "Keep Awake"] }
   if name == "caffeinate-started" { return ["Awake until", "2 h left", "Turn Off", "Let your Mac sleep"] }
   if name == "calendar-agenda" {
-    return ["Calendar", "Design review", "Now until 14:30", "Join Zoom", "Today", "Focus time", "Tomorrow"]
-  }
-  if name == "calendar-week" {
     return [
-      "Agenda", "Week", "Month", "Team offsite", "Mon 30", "Sun 6", "Design review", "Focus time", "Climbing",
+      "Calendar", "Now: Design review until 14:30", "Agenda", "Week", "Today", "Focus time", "Tomorrow",
     ]
   }
-  if name == "calendar-month" {
-    return ["Agenda", "Week", "Month", "November 2026", "Mon", "Sun", "29", "30", "5 events"]
+  if name == "calendar-week" {
+    return ["Agenda", "Week", "Mon 30", "Sun 6", "Design review", "Focus time", "Climbing"]
   }
   if name == "calendar-empty-day" {
-    return ["1:1 with Sam", "Tomorrow 10:00", "Join Google Meet", "Nothing else today", "Team offsite"]
+    return ["1:1 with Sam", "tomorrow 10:00", "Nothing else today", "Team offsite"]
   }
   if name == "calendar-detail" {
     return ["Design review", "When", "Mon 30 Nov", "Calendar", "Work", "Join Zoom", "Onboarding flow"]
@@ -972,7 +969,7 @@ private let installedAgent: Void = {
   private static func configureCalendar(_ state: String, _ model: LauncherModel) async throws {
     let view = try CalendarWeek.recorded().view(
       minutes: state == "calendar-empty-day" ? 4 * 60 : 0,
-      view: state == "calendar-week" ? "week" : state == "calendar-month" ? "month" : nil)
+      view: state == "calendar-week" ? "week" : nil)
     let folder = model.agent.folder.appending(path: "extensions/calendar")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     var manifest = try #require(
@@ -1248,7 +1245,7 @@ func panelCapture(_ state: String) async throws {
         controller.presentation == scenario.model.navigator.presentation, "\(state) drew a stale screen")
     }
     try render(scenario.view, to: target)
-    if ["weather-page", "weather-default", "calendar-week", "calendar-month"].contains(state) {
+    if ["weather-page", "weather-default", "calendar-week"].contains(state) {
       let renderer = try #require(scenario.controller?.renderer)
       // Measure before the renderer's cap, which would hide overflowing content.
       let measured = renderer.contentHeight
@@ -1443,10 +1440,9 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "calendar-agenda", "calendar-empty-day":
     #expect(model.navigator.command?.id == "extension:calendar")
     #expect(model.navigator.body?.contains("### Tomorrow") == true && model.navigator.viewActions.count >= 1)
-  case "calendar-week", "calendar-month":
+  case "calendar-week":
     #expect(model.navigator.command?.id == "extension:calendar")
-    #expect(
-      model.navigator.body?.contains(state == "calendar-week" ? "<timeline" : "<columns labels=") == true)
+    #expect(model.navigator.body?.contains("<timeline") == true)
   case "calendar-detail": #expect(model.navigator.inDetail)
   case "calendar-denied": #expect(Permissions.isGate(model.navigator.results))
   case "history": #expect(model.navigator.command?.id == "history" && model.navigator.results.count == 2)

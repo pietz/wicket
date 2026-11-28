@@ -45,7 +45,7 @@ func agendaWindow(now: Date, calendar: Calendar) -> DateInterval {
 }
 
 enum CalendarLayout: String, CaseIterable {
-  case agenda, week, month
+  case agenda, week
 
   init(_ request: JSON?) {
     self =
@@ -63,11 +63,10 @@ enum CalendarLayout: String, CaseIterable {
     switch self {
     case .agenda: agendaWindow(now: now, calendar: calendar)
     case .week: calendar.dateInterval(of: .weekOfYear, for: now)!
-    case .month: calendar.dateInterval(of: .month, for: now)!
     }
   }
 
-  func control(label: String = "View") -> String {
+  func control(label: String) -> String {
     let options = Self.allCases.map {
       #"{"value":"\#($0.rawValue)","label":"\#($0.rawValue.capitalized)"}"#
     }.joined(separator: ",")
@@ -127,7 +126,6 @@ func calendarView(_ request: JSON?, snapshot: Snapshot, now: Date, calendar: Cal
   switch agenda.layout {
   case .agenda: return agenda.page()
   case .week: return agenda.week()
-  case .month: return agenda.month()
   }
 }
 
@@ -167,7 +165,7 @@ private struct Agenda {
       timeZone: calendar.timeZone)
     let listed = events.filter { event in
       guard !event.cancelled, !event.declined, let name = names[event.calendarID],
-        event.start < window.end, !event.isAllDay || showAllDay
+        event.start < window.end, !event.isAllDay || (layout == .agenda && showAllDay)
       else { return false }
       if layout == .agenda {
         guard event.end > (event.isAllDay ? window.start : now) else { return false }
@@ -213,14 +211,6 @@ private struct Agenda {
     // start, else Open Calendar. Links too long for a row's tag follow it.
     let calls = query.isEmpty ? callsNow : []
     var actions = calls.first.map { [openAction("Join \(title($0.0))", $0.1.url.absoluteString)] } ?? []
-    if query.isEmpty {
-      summary(calls, &lines, &actions)
-    } else {
-      lines += [
-        "# \(events.count == 1 ? "1 event" : "\(events.count) events")",
-        "Matching “\(literal(query))” in the next 7 days",
-      ]
-    }
     if query.isEmpty, let first = events.first, day(first) != today {
       lines += ["", "### Today", "Nothing else today"]
     }
@@ -234,10 +224,12 @@ private struct Agenda {
       lines.append(row(event, &actions))
     }
     if total > events.count { lines += ["", "Showing the first \(events.count) of \(total) events."] }
-    return page(lines, actions: calls.isEmpty ? [calendarApp] + actions : actions + [calendarApp])
+    return page(
+      lines, label: summary(calls), actions: calls.isEmpty ? [calendarApp] + actions : actions + [calendarApp]
+    )
   }
 
-  private func page(_ lines: [String], label: String = "View", actions: [String] = [calendarApp]) -> String {
+  private func page(_ lines: [String], label: String, actions: [String] = [calendarApp]) -> String {
     let body = quoted(([CalendarLayout.marker, ""] + lines).joined(separator: "\n"))
     let back = layout == .agenda ? "" : #","back":{"view":"agenda"}"#
     return
@@ -250,37 +242,6 @@ private struct Agenda {
 
   private func events(during day: DateInterval) -> [AgendaEvent] {
     events.filter { $0.start < day.end && ($0.end > day.start || $0.start >= day.start) }
-  }
-
-  func month() -> String {
-    let leading = (calendar.component(.weekday, from: window.start) - calendar.firstWeekday + 7) % 7
-    let days = calendar.range(of: .day, in: .month, for: window.start)!.count
-    let cells = (leading + days + 6) / 7 * 7
-    let month = window.start.formatted(style.month(.wide).year())
-    let weekdays = (0..<7).map { cell in
-      let date = dayOffset(window.start, cell - leading)
-      return attribute(date.formatted(style.weekday(.abbreviated)).replacingOccurrences(of: ",", with: ""))
-    }
-    var lines = [#"<columns labels="\#(weekdays.joined(separator: ","))">"#]
-    for cell in 0..<cells {
-      let date = dayOffset(window.start, cell - leading)
-      guard date >= window.start, date < window.end else {
-        lines.append("<tile/>")
-        continue
-      }
-      let title = date.formatted(style.day())
-      let events = events(during: calendar.dateInterval(of: .day, for: date)!)
-      let count = events.isEmpty ? " " : eventCount(events.count)
-      let tone = calendar.isDate(date, inSameDayAs: today) ? #" tone="accent""# : ""
-      let tag = #"<tile title="\#(title)" subtitle="\#(count)"\#(tone)"#
-      if events.isEmpty {
-        lines.append(tag + "/>")
-      } else {
-        let heading = literal(date.formatted(style.weekday(.wide).month(.wide).day().year()))
-        lines += [tag + ">", heading, "", periodRows(events, limit: 12), "</tile>"]
-      }
-    }
-    return page(lines + ["</columns>"], label: month)
   }
 
   func week() -> String {
@@ -296,18 +257,9 @@ private struct Agenda {
     let last = days[6].start.formatted(style.month(.abbreviated).day().year())
     let period = window.start.formatted(style.month(.abbreviated).day()) + " – " + last
     var lines: [String] = []
-    let allDay = events.filter(\.isAllDay)
-    if !allDay.isEmpty {
-      let first = title(allDay[0])
-      let summary = allDay.count == 1 ? first : "\(first) +\(allDay.count - 1)"
-      lines += [
-        #"<row title="All-day events" subtitle="\#(attribute(summary))">"#,
-        periodRows(allDay, limit: 12), "</row>",
-      ]
-    }
     var spans: [(event: AgendaEvent, lane: String, from: Int, to: Int)] = []
     for (day, lane) in zip(days, labels) {
-      for event in events(during: day) where !event.isAllDay {
+      for event in events(during: day) {
         let from = minute(max(day.start, event.start), in: day)
         let to = minute(min(day.end, event.end), in: day)
         spans.append((event, lane, from, max(from + 1, to)))
@@ -338,13 +290,6 @@ private struct Agenda {
 
   private func eventCount(_ count: Int) -> String { count == 1 ? "1 event" : "\(count) events" }
 
-  private func periodRows(_ events: [AgendaEvent], limit: Int) -> String {
-    var actions: [String] = []
-    var rows = events.prefix(limit).map { row($0, &actions) }
-    if events.count > limit { rows.append("Showing the first \(limit) of \(events.count) events.") }
-    return rows.joined(separator: "\n")
-  }
-
   /// Calls that are on or start within `joinLead`, each with its first link.
   private var callsNow: [(AgendaEvent, MeetingLink)] {
     events.filter { !$0.isAllDay && $0.start.timeIntervalSince(now) <= joinLead }.compactMap { event in
@@ -352,42 +297,33 @@ private struct Agenda {
     }
   }
 
-  /// The top of the page: the calls on now, else the next timed event.
-  private func summary(
-    _ calls: [(AgendaEvent, MeetingLink)], _ lines: inout [String], _ actions: inout [String]
-  ) {
+  private func summary(_ calls: [(AgendaEvent, MeetingLink)]) -> String {
+    if !query.isEmpty { return "\(eventCount(events.count)) matching “\(query)”" }
+    if let first = calls.first {
+      let overlapping = calls.filter { $0.0.start < first.0.end }.count
+      if overlapping > 1 { return "Now: \(overlapping) overlapping calls" }
+    }
     let timed = events.filter { !$0.isAllDay }
-    if calls.count > 1 {
-      lines += ["# \(calls.count) calls now", "Overlapping calls"]
-      for (event, link) in calls {
-        lines += target(
-          title(event), subtitle: "\(link.service) · \(relative(event))", icon: "video", link.url,
-          action: "Join", &actions)
-      }
-      return
+    guard let event = calls.first?.0 ?? timed.first(where: { $0.start > now }) ?? timed.first else {
+      return eventCount(events.count)
     }
-    guard let next = calls.first?.0 ?? timed.first(where: { $0.start > now }) ?? timed.first else {
-      lines += [
-        "# \(events.count == 1 ? "1 event" : "\(events.count) events")", "No meetings in the next 7 days",
-      ]
-      return
+    if event.start <= now {
+      let service = place(event, meetingLinks(in: event))
+      let end = endsSameDay(event) ? time(event.end) : "\(shortDay(event.end)) \(time(event.end))"
+      return "Now: \(title(event)) until \(end)" + (service.isEmpty ? "" : " · " + service)
     }
-    let links = meetingLinks(in: next)
-    lines += [
-      "# " + literal(title(next)),
-      ([relative(next)] + [place(next, links)].filter { !$0.isEmpty }.map(literal)).joined(separator: " · "),
-    ]
-    if let link = links.first {
-      lines += target(
-        "Join \(link.service)", subtitle: link.host, icon: "video", link.url, action: "Join", &actions)
-    }
+    let day = day(event)
+    let start =
+      day == today
+      ? "at " + time(event.start) : (nearDay(day)?.lowercased() ?? shortDay(day)) + " " + time(event.start)
+    return "Next: \(title(event)) \(start)"
   }
 
   /// An event's row: its time, title and place, and its facts as the detail Return opens.
   private func row(_ event: AgendaEvent, _ actions: inout [String], span: String? = nil) -> String {
     let links = meetingLinks(in: event)
     let kind = span == nil ? "row" : "span"
-    let timeLabel = layout == .agenda ? label(event) : event.isAllDay ? "All day" : time(event.start)
+    let timeLabel = layout == .agenda ? label(event) : time(event.start)
     var tag = #"<\#(kind) label="\#(timeLabel)" title="\#(attribute(title(event)))"\#(span ?? "")"#
     let place = place(event, links)
     if !place.isEmpty { tag += #" subtitle="\#(attribute(place))""# }
@@ -413,8 +349,8 @@ private struct Agenda {
       return item(detail + linkRows + (event.notes.isEmpty ? [] : ["", plainText(event.notes)]))
     }
 
-    // A month's day details share the reply's 1 MiB with the grid. Reserve room for links before notes.
-    let budget = layout == .month ? 2_000 : 8_000
+    // Week's details share the reply limit with the grid. Reserve room for links before notes.
+    let budget = 8_000
     for link in linkRows where quoted(item(detail + [link])).utf8.count <= budget { detail.append(link) }
     if !event.notes.isEmpty {
       let left = budget - quoted(item(detail)).utf8.count - 2
@@ -589,17 +525,6 @@ private struct Agenda {
     return first == last ? "\(shortDay(first)), all day" : "\(shortDay(first)) – \(shortDay(last))"
   }
 
-  /// When a timed event is, from now: on now, starting in minutes, or its day and times.
-  private func relative(_ event: AgendaEvent) -> String {
-    if event.start <= now {
-      let until = endsSameDay(event) ? time(event.end) : "\(shortDay(event.end)) \(time(event.end))"
-      return "Now until \(until)"
-    }
-    let minutes = Int((event.start.timeIntervalSince(now) / 60).rounded(.up))
-    if minutes < 60 { return "In \(minutes) min · \(span(event))" }
-    let day = day(event)
-    return "\(nearDay(day) ?? shortDay(day)) \(span(event))"
-  }
 }
 
 /// The day an event is listed under: one that began before today and is still on shows today.
@@ -620,7 +545,7 @@ private func rowView(
 ) -> String {
   let control =
     layout.map {
-      #""body":\#(quoted(CalendarLayout.marker)),"fields":[\#($0.control())],"actions":[\#(action ?? "")],"#
+      #""body":\#(quoted(CalendarLayout.marker)),"fields":[\#($0.control(label: "Next 7 days"))],"actions":[\#(action ?? "")],"#
     } ?? ""
   return
     #"{\#(control)"items":[{"id":"\#(id)","title":\#(quoted(title)),"subtitle":\#(quoted(subtitle)),"icon":"\#(icon)","actions":[\#(action ?? "")]}]}"#

@@ -21,7 +21,7 @@ private func kinds(_ blocks: [PageBlock]) -> [String] {
     case .progresses(let items): "progress\(items.count)"
     case .badges(let items): "badges\(items.count)"
     case .card(let icon, let blocks): "card(\(icon ?? ""):\(kinds(blocks).joined(separator: ",")))"
-    case .columns(let blocks, _): "columns(\(kinds(blocks).joined(separator: ",")))"
+    case .columns(let blocks): "columns(\(kinds(blocks).joined(separator: ",")))"
     case .fields(let controls): "fields\(controls.count)"
     case .chart(_, let pending): pending ? "chart…" : "chart"
     case .timeline(let timeline): "timeline\(timeline.spans.count)"
@@ -386,21 +386,6 @@ private func kinds(_ blocks: [PageBlock]) -> [String] {
   #expect(kinds(blocks) == ["rows1"])
   #expect(blocks.first?.holds(invalid.targets[0].id) == true)
   #expect(kinds(document("`<timeline lanes='X'><span lane='X'/></timeline>`").blocks) == ["p"])
-}
-
-@MainActor @Test func tileColumnsWrapAfterSevenEvenWithRoomForMore() {
-  let renderer = NativePageRenderer()
-  func height(_ count: Int) -> CGFloat {
-    let tiles = (1...count).map { #"<tile title="\#($0)" subtitle="Event"/>"# }
-    let page = Page(body: (["<columns>"] + tiles + ["</columns>"]).joined(separator: "\n"), runs: false)
-    renderer.update(page, turn: "grid", width: 1000)
-    return renderer.contentHeight
-  }
-  let firstRow = height(7)
-  let secondRow = height(8)
-  #expect(secondRow > firstRow + 30)
-  #expect(height(14) == secondRow)
-  #expect(height(15) > secondRow + 30)
 }
 
 @MainActor @Test func timelineKeepsShortSpansReadableWithoutCoveringTheirNeighbors() throws {

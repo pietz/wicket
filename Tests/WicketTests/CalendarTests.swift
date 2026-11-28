@@ -97,7 +97,8 @@ private func detailOf(_ row: Row?) -> String? {
 @Test func calendarLeadsWithTheLiveCallAndReturnJoinsIt() throws {
   let view = try CalendarWeek.recorded().view()
   let body = try #require(view.body)
-  #expect(body.hasPrefix(agendaStart + "# Design review\nNow until 14:30 · Zoom\n"))
+  #expect(view.pageControls().first?.label == "Now: Design review until 14:30 · Zoom")
+  #expect(body.hasPrefix(agendaStart + "\n### Today\n"))
   // With nothing selected Return runs the first view action.
   let zoom = "https://acme.zoom.us/j/81234567890?pwd=Xy7"
   #expect(
@@ -107,11 +108,10 @@ private func detailOf(_ row: Row?) -> String? {
   let targets = try page(view).targets
   #expect(
     targets.map(\.title) == [
-      "Join Zoom", "Design review", "Focus time", "Team offsite", "1:1 with Sam", "Dentist",
+      "Design review", "Focus time", "Team offsite", "1:1 with Sam", "Dentist",
       "Quarterly planning",
       "Climbing", "Ada’s birthday",
     ])
-  #expect(targets[0].subtitle == "acme.zoom.us" && opened(targets[0].actions.first)?.absoluteString == zoom)
   for heading in ["### Today", "### Tomorrow", "### Wednesday 2 December", "### Friday 4 December"] {
     #expect(body.contains(heading))
   }
@@ -124,24 +124,25 @@ private func detailOf(_ row: Row?) -> String? {
 @Test func calendarJoinIsReturnOnlyWithinTenMinutes() throws {
   let week = try CalendarWeek.recorded()
   let early = try week.view(minutes: -40)
-  #expect(early.body?.hasPrefix(agendaStart + "# Design review\nIn 15 min · 13:30–14:30 · Zoom\n") == true)
-  #expect(try page(early).targets.first?.title == "Join Zoom")
+  #expect(early.pageControls().first?.label == "Next: Design review at 13:30")
+  #expect(try page(early).targets.first?.title == "Design review")
   #expect(early.actions.map(\.title) == ["Open Calendar"])
   let soon = try week.view(minutes: -34)
-  #expect(soon.body?.contains("In 9 min") == true && soon.actions.first?.title == "Join Design review")
+  #expect(soon.pageControls().first?.label == "Next: Design review at 13:30")
+  #expect(soon.actions.first?.title == "Join Design review")
   // After the call, the next event leads, without a link to join.
   let later = try week.view(minutes: 40)
-  #expect(later.body?.hasPrefix(agendaStart + "# Focus time\nIn 25 min · 15:00–17:00\n") == true)
+  #expect(later.pageControls().first?.label == "Next: Focus time at 15:00")
   #expect(later.actions.map(\.title) == ["Open Calendar"])
   // After the last event of the day: the rest of today is empty, and the next meeting is tomorrow.
   let evening = try week.view(minutes: 4 * 60)
   let body = try #require(evening.body)
-  #expect(body.hasPrefix(agendaStart + "# 1&#58;1 with Sam\nTomorrow 10:00–10:30 · Google Meet\n"))
+  #expect(evening.pageControls().first?.label == "Next: 1:1 with Sam tomorrow 10:00")
   #expect(body.contains("### Today\nNothing else today\n\n### Tomorrow"))
-  #expect(try page(evening).targets.first?.title == "Join Google Meet")
+  #expect(try page(evening).targets.first?.title == "Team offsite")
 }
 
-@Test func calendarListsOverlappingCallsEachWithItsTitle() throws {
+@Test func calendarSummarizesOverlappingCallsAndKeepsTheirRows() throws {
   let week = try CalendarWeek.recorded()
   guard case .loaded(let calendars, var events) = week.snapshot else { return }
   events.append(
@@ -150,10 +151,10 @@ private func detailOf(_ row: Row?) -> String? {
       end: week.now.addingTimeInterval(35 * 60), calendarID: "work",
       notes: "Click https://teams.microsoft.com/meet/123456?p=abc to join"))
   let view = try week.view(snapshot: .loaded(calendars: calendars, events: events))
-  #expect(view.body?.hasPrefix(agendaStart + "# 2 calls now\nOverlapping calls\n") == true)
+  #expect(view.pageControls().first?.label == "Now: 2 overlapping calls")
   let targets = try page(view).targets
   #expect(targets.prefix(2).map(\.title) == ["Design review", "Vendor sync"])
-  #expect(targets[1].subtitle == "Microsoft Teams · In 5 min · 14:00–14:30")
+  #expect(targets[1].subtitle == "Microsoft Teams")
   #expect(view.actions.first?.title == "Join Design review")
 }
 
@@ -189,7 +190,7 @@ private func detailOf(_ row: Row?) -> String? {
   // An hour ahead, Return still opens Calendar; the link follows it.
   let view = try week.view(snapshot: .loaded(calendars: work, events: [call]))
   #expect(try page(view).targets.map(\.title) == ["Board call"])
-  #expect(view.actions.map(\.title) == ["Open Calendar", "Join Microsoft Teams"])
+  #expect(view.actions.map(\.title) == ["Open Calendar", "Join Microsoft Teams: Board call"])
   #expect(opened(view.actions.last)?.absoluteString == long)
   // Five minutes ahead, Return joins it, once.
   let soon = try week.view(minutes: 55, snapshot: .loaded(calendars: work, events: [call]))
@@ -239,7 +240,7 @@ private func detailOf(_ row: Row?) -> String? {
 @Test func calendarSearchesTitlesPlacesAndCalendars() throws {
   let week = try CalendarWeek.recorded()
   let home = try week.view(query: "home")
-  #expect(home.body?.hasPrefix(agendaStart + "# 2 events\nMatching “home” in the next 7 days") == true)
+  #expect(home.pageControls().first?.label == "2 events matching “home”")
   #expect(try page(home).targets.map(\.title) == ["Dentist", "Climbing"])
   #expect(try page(week.view(query: "torstrasse")).targets.map(\.title) == ["Dentist"])
   let none = try week.view(query: "xyz")
@@ -251,7 +252,7 @@ private func detailOf(_ row: Row?) -> String? {
   let week = try CalendarWeek.recorded()
   let titles = try page(week.view(settings: ["hiddenCalendars": "birthdays, home", "showAllDay": "false"]))
     .targets.map(\.title)
-  #expect(titles == ["Join Zoom", "Design review", "Focus time", "1:1 with Sam", "Quarterly planning"])
+  #expect(titles == ["Design review", "Focus time", "1:1 with Sam", "Quarterly planning"])
   let hidden = try week.view(settings: ["hiddenCalendars": "work,home,birthdays"])
   #expect(hidden.items.map(\.id) == ["all-hidden"])
 }
@@ -395,7 +396,6 @@ private func detailOf(_ row: Row?) -> String? {
       cat > request.json
       case "$(cat request.json)" in
         *'"view":"week"'*) cat week.json ;;
-        *'"view":"month"'*) cat month.json ;;
         *) cat agenda.json ;;
       esac
       """#, fields: manifest)
@@ -429,16 +429,20 @@ private func detailOf(_ row: Row?) -> String? {
   #expect(try request().submitted)
   #expect(navigator.body?.contains("<timeline") == true)
 
-  model.press(try #require(HotkeyTarget("wicket://calendar?item=month")))
+  #expect(navigator.escape())
   await navigator.settled()
-  #expect(try request().fields["view"] == "month")
-  #expect(navigator.body?.contains("<columns labels=") == true)
-  let day = try #require(navigator.results.first { $0.row.title == "30" })
-  navigator.select(day.id)
+  #expect(navigator.body?.contains("### Tomorrow") == true)
+  model.press(try #require(HotkeyTarget("wicket://calendar?item=week")))
+  await navigator.settled()
+  #expect(try request().fields["view"] == "week")
+  #expect(try request().submitted)
+  #expect(navigator.body?.contains("<timeline") == true)
+  let event = try #require(navigator.results.first { $0.row.title == "Design review" })
+  navigator.select(event.id)
   #expect(model.activateReturn())
   #expect(navigator.inDetail)
   #expect(navigator.escape())
-  #expect(navigator.body?.contains("<columns labels=") == true)
+  #expect(navigator.body?.contains("<timeline") == true)
 
   navigator.input = "studio"
   await navigator.settled()
@@ -454,59 +458,24 @@ private func detailOf(_ row: Row?) -> String? {
   let fixture = try CalendarWeek.recorded()
   let week = try fixture.view(view: "week")
   let body = try #require(week.body)
-  #expect(week.pageControls().map(\.value) == ["week"])
+  let control = try #require(week.pageControls().first)
+  guard case .choice(let options) = control.control else {
+    Issue.record("Expected a view choice")
+    return
+  }
+  #expect(options.map(\.value) == ["agenda", "week"])
+  #expect(control.value == "week" && control.label == "30 Nov – 6 Dec 2026")
   #expect(week.back == ["view": "agenda"])
   #expect(body.contains(#"lanes="Mon 30,Tue 1,Wed 2,Thu 3,Fri 4,Sat 5,Sun 6" now="13:55" now-lane="Mon 30""#))
   #expect(body.contains(#"lane="Mon 30" from="09:00" to="12:30""#))
-  #expect(body.contains("Team offsite") && body.contains("Morning standup"))
-  #expect(!body.contains("Next week") && !body.contains("Team workshop"))
+  #expect(
+    !body.contains("Team offsite") && !body.contains("Ada’s birthday") && body.contains("Morning standup"))
+  #expect(!body.contains("Next week"))
   #expect(!body.contains("Vendor pitch") && !body.contains("Old plan"))
   let filtered = try fixture.view(query: "boulderhalle", view: "week")
   #expect(try page(filtered).targets.map(\.title) == ["Climbing"])
-  let read = try fixture.view(view: "month", action: "read-agenda")
+  let read = try fixture.view(view: "week", action: "read-agenda")
   #expect(read == (try fixture.view(action: "read-agenda")))
-}
-
-@Test func calendarMonthShowsSixRowsAndOpensOnlyDaysWithEvents() throws {
-  let fixture = try CalendarWeek.recorded()
-  let month = try fixture.view(view: "month")
-  #expect(month.pageControls().map(\.value) == ["month"])
-  #expect(month.back == ["view": "agenda"])
-  let page = try page(month)
-  let blocks = PageDocument(page, turn: "month", streaming: false).blocks
-  guard case .columns(let cells, let labels)? = blocks.last else {
-    Issue.record("Expected month tiles")
-    return
-  }
-  #expect(cells.count == 42)
-  #expect(labels == ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
-  guard case .tile(let first)? = cells.first, case .tile(let today) = cells[35] else {
-    Issue.record("Expected weekday and today tiles")
-    return
-  }
-  #expect(first == PageItem())
-  #expect(today.title == "30" && today.subtitle == "5 events" && today.tone == "accent")
-  #expect(page.targets.map(\.title) == ["9", "15", "19", "30"])
-  let detail = try #require(detailOf(page.targets.last))
-  #expect(detail.contains("Morning standup") && !detail.contains("Team offsite"))
-  let filtered = try fixture.view(query: "studio", view: "month")
-  #expect(filtered.body?.contains("Team workshop") == true)
-  #expect(filtered.body?.contains("Showcase") == false)
-}
-
-@Test func calendarMonthCountsAllEventsAndCapsTheDayDetail() throws {
-  let fixture = try CalendarWeek.recorded()
-  let events = (0..<120).map { index in
-    AgendaEvent(
-      id: "e\(index)", title: "Event \(index)", start: fixture.now,
-      end: fixture.now.addingTimeInterval(1800), calendarID: "work")
-  }
-  let snapshot = Snapshot.loaded(calendars: [AgendaCalendar(id: "work", title: "Work")], events: events)
-  let month = try fixture.view(view: "month", snapshot: snapshot)
-  #expect(month.body?.contains(#"title="30" subtitle="120 events""#) == true)
-  let detail = try #require(try detailOf(page(month).targets.first))
-  #expect(detail.contains("Showing the first 12 of 120 events."))
-  #expect(Page(body: detail, runs: true).targets.count == 12)
 }
 
 @Test func calendarUsesCivilDayBoundariesAfterAMidnightClockChange() throws {
@@ -516,8 +485,6 @@ private func detailOf(_ row: Row?) -> String? {
   )
   let fixture = CalendarWeek(now: start, timeZone: "Africa/Cairo", calendars: [], events: [])
   let snapshot = Snapshot.loaded(calendars: [AgendaCalendar(id: "work", title: "Work")], events: [meeting])
-  let month = try page(fixture.view(view: "month", snapshot: snapshot))
-  #expect(month.targets.map(\.title) == ["25"])
   let week = try fixture.view(view: "week", snapshot: snapshot)
   #expect(try page(week).targets.map(\.title) == ["Early meeting"])
   #expect(week.body?.contains(#"lane="Sat 25" from="00:30" to="01:00""#) == true)
@@ -545,17 +512,16 @@ private func detailOf(_ row: Row?) -> String? {
   #expect(detailOf(week.targets.first)?.contains("02:45 UTC+02:00–02:15 UTC+01:00") == true)
 }
 
-@Test func calendarMonthReservesRoomForJoinBeforeTruncatingNotes() throws {
+@Test func calendarWeekReservesRoomForJoinBeforeTruncatingNotes() throws {
   let fixture = try CalendarWeek.recorded()
   let link = try #require(URL(string: "https://meet.google.com/abc-defg-hij"))
   let event = AgendaEvent(
     id: "long-notes", title: "Planning", start: fixture.now, end: fixture.now.addingTimeInterval(1800),
-    calendarID: "work", notes: String(repeating: "Plan & test. ", count: 160) + "Last paragraph.",
+    calendarID: "work", notes: "Plan & test. " + String(repeating: "&", count: 1_900) + "Last paragraph.",
     url: link)
   let snapshot = Snapshot.loaded(calendars: [AgendaCalendar(id: "work", title: "Work")], events: [event])
-  let month = try page(fixture.view(view: "month", snapshot: snapshot))
-  let day = Page(body: try #require(detailOf(month.targets.first)), runs: true)
-  let eventDetail = try #require(detailOf(day.targets.first))
+  let week = try page(fixture.view(view: "week", snapshot: snapshot))
+  let eventDetail = try #require(detailOf(week.targets.first))
   #expect(eventDetail.contains("Plan &#38; test&#46;"))
   #expect(eventDetail.hasSuffix("…") && !eventDetail.contains("Last paragraph"))
   let actions = Page(body: eventDetail, runs: true).targets

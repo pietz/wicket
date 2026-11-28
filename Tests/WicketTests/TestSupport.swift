@@ -161,7 +161,7 @@ extension PageBlock {
   var children: [PageBlock] {
     switch self {
     case .list(_, _, let items): items.flatMap { $0 }
-    case .quote(let blocks), .card(_, let blocks), .columns(let blocks, _): blocks
+    case .quote(let blocks), .card(_, let blocks), .columns(let blocks): blocks
     default: []
     }
   }
