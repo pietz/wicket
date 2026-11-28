@@ -12,7 +12,7 @@ struct CalendarWeek: Decodable {
   let now: Date
   let timeZone: String
   let calendars: [Source]
-  let events: [Event]
+  var events: [Event]
   struct Source: Decodable {
     let id: String
     let title: String
@@ -184,6 +184,15 @@ private func detailOf(_ row: Row?) -> String? {
   #expect(links.map(\.title) == ["Join Zoom"])
   #expect(opened(links.first?.actions.first)?.absoluteString == "https://zoom.us/j/222333444")
   #expect(detailOf(planning)?.contains(#"<row label="Location" value="Room 2"/>"#) == true)
+}
+
+@Test func calendarDetailKeepsAMapLinkTheRowLeavesOut() throws {
+  var week = try CalendarWeek.recorded()
+  let index = try #require(week.events.firstIndex { $0.title == "Dentist" })
+  week.events[index].location = "https://maps.apple.com/?q=Site"
+  let row = try #require(try page(week.view()).targets.first { $0.title == "Dentist" })
+  #expect(row.subtitle == nil)
+  #expect(detailOf(row)?.contains(#"<row label="Location" value="https://maps.apple.com/?q=Site"/>"#) == true)
 }
 
 @Test func calendarMovesLinksTooLongForATagIntoActionsAfterTheDefault() throws {

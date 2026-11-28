@@ -349,7 +349,10 @@ private struct Agenda {
       }
     }
     var detail = [property("When", when(event)), property("Calendar", names[event.calendarID] ?? "")]
-    if !location.isEmpty { detail.append(property("Location", location)) }
+    // The detail keeps other links, such as a map, that the row's place leaves out; calls show as Join.
+    let fullLocation = event.location.split(whereSeparator: \.isWhitespace)
+      .filter { meetingLink(String($0)) == nil }.joined(separator: " ")
+    if !fullLocation.isEmpty { detail.append(property("Location", fullLocation)) }
     var linkRows: [String] = []
     for link in links where link != primary {
       linkRows += target(
