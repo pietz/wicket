@@ -232,3 +232,41 @@ func returnAndCommandKCopyTheBodyOfASelectedRow(extensionPage: Bool) async throw
   fake.end()
   await model.finish()
 }
+
+@MainActor @Test(arguments: ["row", "tile"])
+func actionFirstJoinsOnReturnAndClickAndKeepsDetailsInCommandK(tag: String) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let url = try #require(URL(string: "https://example.com/join"))
+  let body = """
+    <\(tag) title="Standup" open="\(url.absoluteString)" action="Join" action-first="true">Room 2</\(tag)>
+    <row title="Notes" action-first="true">Project notes.</row>
+    """
+  let model = try await printing(["body": body], in: root)
+  let navigator = model.navigator
+  navigator.go(Address(id: "test"))
+  await navigator.settled()
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  navigator.move(1)
+  let target = try #require(navigator.selected)
+  let join = PaletteEffect.run(.open(url, title: "Join"), from: target)
+
+  navigator.run()
+  #expect(surface.count(join) == 1 && !navigator.inDetail)
+  let revision = navigator.page?.targetRevision ?? navigator.pageTurn
+  #expect(navigator.clickTarget(target.row.id, revision: revision))
+  #expect(surface.count(join) == 2 && !navigator.inDetail)
+
+  navigator.toggleActions()
+  #expect(navigator.results.map(\.row.title) == ["Join", "Show details"])
+  navigator.move(1)
+  #expect(model.activateReturn() && navigator.inDetail)
+  #expect(navigator.page?.source.contains("Room 2") == true)
+  #expect(navigator.page?.targets.map(\.title) == ["Join"])
+  #expect(navigator.escape())
+  navigator.move(1)
+  #expect(navigator.selected?.row.title == "Notes")
+  #expect(navigator.returnAction?.label == "Show details")
+  await model.finish()
+}

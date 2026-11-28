@@ -85,7 +85,7 @@ private func expectedText(_ name: String) -> [String] {
     return ["1:1 with Sam", "tomorrow 10:00", "Nothing else today", "Team offsite"]
   }
   if name == "calendar-detail" {
-    return ["Design review", "When", "Mon 30 Nov", "Calendar", "Work", "Join Zoom", "Onboarding flow"]
+    return ["Design review", "When", "Mon 30 Nov", "Calendar", "Work", "Join", "Onboarding flow"]
   }
   if name == "calendar-denied" { return ["Allow Calendar for Wicket", "Turn on Wicket under Calendars"] }
   if name == "weather-page" || name == "weather-default" {
@@ -992,6 +992,9 @@ private let installedAgent: Void = {
   private static func openCalendarDetail(_ model: LauncherModel) async throws {
     for _ in 0..<3 where model.navigator.selected?.row.title != "Design review" { model.navigator.move(1) }
     try #require(model.navigator.selected?.row.title == "Design review")
+    model.navigator.toggleActions()
+    model.navigator.move(1)
+    try #require(model.navigator.selected?.row.title == "Show details")
     try #require(model.activateReturn())
     await model.navigator.settled()
   }

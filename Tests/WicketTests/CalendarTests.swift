@@ -91,7 +91,9 @@ private func opened(_ action: RowAction?) -> URL? {
 }
 /// What Return opens on a body row: its detail.
 private func detailOf(_ row: Row?) -> String? {
-  if case .detail(let markdown, _)? = row?.actions.first?.kind { markdown } else { nil }
+  row?.actions.compactMap { action in
+    if case .detail(let markdown, _) = action.kind { markdown } else { nil }
+  }.first
 }
 
 @Test func calendarLeadsWithTheLiveCallAndReturnJoinsIt() throws {
@@ -115,7 +117,10 @@ private func detailOf(_ row: Row?) -> String? {
   for heading in ["### Today", "### Tomorrow", "### Wednesday 2 December", "### Friday 4 December"] {
     #expect(body.contains(heading))
   }
-  #expect(body.contains(#"<row label="13:30" title="Design review" subtitle="Zoom" value="Now">"#))
+  #expect(body.contains(#"<row label="13:30" title="Design review" value="Now · Zoom" open="#))
+  #expect(targets[0].actions.map(\.label) == ["Join", "Show details"])
+  #expect(opened(targets[0].actions.first)?.absoluteString == zoom)
+  #expect(targets[1].actions.map(\.label) == ["Show details"])
   #expect(body.contains(#"<row label="All day" title="Team offsite" subtitle="Spreewald">"#))
   // Elapsed, cancelled, declined and next week's events stay out.
   for gone in ["Morning standup", "Old plan", "Vendor pitch", "Next week"] { #expect(!body.contains(gone)) }
@@ -154,7 +159,8 @@ private func detailOf(_ row: Row?) -> String? {
   #expect(view.pageControls().first?.label == "Now: 2 overlapping calls")
   let targets = try page(view).targets
   #expect(targets.prefix(2).map(\.title) == ["Design review", "Vendor sync"])
-  #expect(targets[1].subtitle == "Microsoft Teams")
+  #expect(targets[1].subtitle == nil)
+  #expect(view.body?.contains(#"title="Vendor sync" value="Teams""#) == true)
   #expect(view.actions.first?.title == "Join Design review")
 }
 
@@ -167,7 +173,7 @@ private func detailOf(_ row: Row?) -> String? {
   // The location is the call's link, so it shows as Join rather than as a place.
   #expect(!detail.contains(#"label="Location""#))
   let inner = Page(body: detail, runs: true)
-  #expect(inner.targets.map(\.title) == ["Join Zoom"])
+  #expect(inner.targets.isEmpty)
   let blocks = PageDocument(inner, turn: "t", streaming: false).blocks
   #expect(blocks.flatMap(\.inlineLinks).isEmpty)
   #expect(blocks.map(\.renderedText).joined().contains("Agenda:\n"))
@@ -175,21 +181,22 @@ private func detailOf(_ row: Row?) -> String? {
 
   let planning = try #require(targets.first { $0.title == "Quarterly planning" })
   let links = Page(body: try #require(detailOf(planning)), runs: true).targets
-  #expect(links.map(\.title) == ["Join Microsoft Teams", "Join Zoom"])
-  #expect(opened(links[1].actions.first)?.absoluteString == "https://zoom.us/j/222333444")
+  #expect(links.map(\.title) == ["Join Zoom"])
+  #expect(opened(links.first?.actions.first)?.absoluteString == "https://zoom.us/j/222333444")
   #expect(detailOf(planning)?.contains(#"<row label="Location" value="Room 2"/>"#) == true)
 }
 
 @Test func calendarMovesLinksTooLongForATagIntoActionsAfterTheDefault() throws {
   let week = try CalendarWeek.recorded()
-  let long = "https://teams.microsoft.com/l/meetup-join/" + String(repeating: "a", count: 1100)
+  let long = "https://teams.microsoft.com/l/meetup-join/" + String(repeating: "a", count: 4050)
   let call = AgendaEvent(
     id: "long", title: "Board call", start: week.now.addingTimeInterval(3600),
     end: week.now.addingTimeInterval(7200), calendarID: "work", location: long)
   let work = [AgendaCalendar(id: "work", title: "Work")]
   // An hour ahead, Return still opens Calendar; the link follows it.
   let view = try week.view(snapshot: .loaded(calendars: work, events: [call]))
-  #expect(try page(view).targets.map(\.title) == ["Board call"])
+  let row = try #require(try page(view).targets.first)
+  #expect(row.title == "Board call" && row.actions.map(\.label) == ["Show details"])
   #expect(view.actions.map(\.title) == ["Open Calendar", "Join Microsoft Teams: Board call"])
   #expect(opened(view.actions.last)?.absoluteString == long)
   // Five minutes ahead, Return joins it, once.
@@ -527,4 +534,61 @@ private func detailOf(_ row: Row?) -> String? {
   let actions = Page(body: eventDetail, runs: true).targets
   #expect(actions.map(\.title) == ["Join Google Meet"])
   #expect(opened(actions.first?.actions.first) == link)
+}
+
+@Test func calendarAgendaJoinsTheFirstLinkAndShowsOnlyThePlace() throws {
+  let week = try CalendarWeek.recorded()
+  let url = try #require(URL(string: "https://meet.google.com/abc-defg-hij"))
+  let event = AgendaEvent(
+    id: "planning", title: "Planning", start: week.now.addingTimeInterval(3600),
+    end: week.now.addingTimeInterval(5400), calendarID: "work",
+    location: "Room 2 https://zoom.us/j/222", notes: "https://teams.microsoft.com/meet/333", url: url)
+  let view = try week.view(
+    snapshot: .loaded(calendars: [AgendaCalendar(id: "work", title: "Work")], events: [event]))
+  let row = try #require(try page(view).targets.first)
+  #expect(row.subtitle == "Room 2" && opened(row.actions.first) == url)
+  #expect(view.body?.contains(#"subtitle="Room 2" value="Google Meet""#) == true)
+  guard case .detail(let detail, let action)? = row.actions.last?.kind else {
+    Issue.record("Expected event details")
+    return
+  }
+  let joins = Page(body: detail, items: action.map { [$0] } ?? [], runs: true)
+  #expect(joins.targets.map(\.title) == ["Join Zoom", "Join Microsoft Teams", "Join"])
+  #expect(joins.targets.compactMap { opened($0.actions.first) }.filter { $0 == url }.count == 1)
+}
+
+@Test func calendarCallsThatOverlapInTheFutureAreNextAndJoinable() throws {
+  let week = try CalendarWeek.recorded()
+  let events = [5.0, 8.0].map { minutes in
+    AgendaEvent(
+      id: "\(minutes)", title: "Call \(minutes)", start: week.now.addingTimeInterval(minutes * 60),
+      end: week.now.addingTimeInterval(30 * 60), calendarID: "work",
+      url: URL(string: "https://zoom.us/j/1234"))
+  }
+  let snapshot = Snapshot.loaded(calendars: [AgendaCalendar(id: "work", title: "Work")], events: events)
+  let view = try week.view(snapshot: snapshot)
+  #expect(view.pageControls().first?.label == "Next: 2 overlapping calls")
+  #expect(view.actions.first?.title == "Join Call 5.0")
+  let filtered = try week.view(query: "Call", snapshot: snapshot)
+  #expect(filtered.actions.first?.title == "Open Calendar")
+  #expect(try page(filtered).targets.first?.actions.first?.title == "Join")
+}
+
+@Test func calendarSummaryReportsTheFullCountAndKeepsLongQueriesShort() throws {
+  let week = try CalendarWeek.recorded()
+  let query = String(repeating: "Workshop ", count: 12).trimmingCharacters(in: .whitespaces)
+  let start = week.now.addingTimeInterval(-3600)
+  let events = (0..<125).map { index in
+    AgendaEvent(
+      id: "\(index)", title: query, start: start, end: start.addingTimeInterval(7200),
+      isAllDay: true, calendarID: "work")
+  }
+  let snapshot = Snapshot.loaded(calendars: [AgendaCalendar(id: "work", title: "Work")], events: events)
+  let allDay = try week.view(snapshot: snapshot)
+  #expect(allDay.pageControls().first?.label == "125 events")
+  let filtered = try week.view(query: query, snapshot: snapshot)
+  let label = try #require(filtered.pageControls().first?.label)
+  #expect(label.hasPrefix("125 events matching “Workshop"))
+  #expect(label.count == 60 && label.hasSuffix("…"))
+  #expect(filtered.body?.contains("Showing the first 100 of 125 events.") == true)
 }

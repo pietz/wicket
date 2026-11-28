@@ -454,7 +454,7 @@ private struct PageFields: View {
     VStack(spacing: 2) {
       ForEach(controls, id: \.name) { control in
         HStack(spacing: 12) {
-          Text(control.label).lineLimit(1)
+          Text(control.label)
           Spacer(minLength: 12)
           PageControl(control: control)
         }

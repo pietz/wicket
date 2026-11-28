@@ -70,8 +70,9 @@ enum CalendarLayout: String, CaseIterable {
     let options = Self.allCases.map {
       #"{"value":"\#($0.rawValue)","label":"\#($0.rawValue.capitalized)"}"#
     }.joined(separator: ",")
+    let caption = self == .agenda && label.count > 60 ? String(label.prefix(59)) + "…" : label
     return
-      #"{"name":"view","type":"choice","description":\#(quoted(label)),"value":"\#(rawValue)","options":[\#(options)]}"#
+      #"{"name":"view","type":"choice","description":\#(quoted(caption)),"value":"\#(rawValue)","options":[\#(options)]}"#
   }
 
   static let marker = #"<field name="view"/>"#
@@ -298,17 +299,21 @@ private struct Agenda {
   }
 
   private func summary(_ calls: [(AgendaEvent, MeetingLink)]) -> String {
-    if !query.isEmpty { return "\(eventCount(events.count)) matching “\(query)”" }
+    if !query.isEmpty { return "\(eventCount(total)) matching “\(query)”" }
     if let first = calls.first {
       let overlapping = calls.filter { $0.0.start < first.0.end }.count
-      if overlapping > 1 { return "Now: \(overlapping) overlapping calls" }
+      if overlapping > 1 {
+        let timing = first.0.start <= now ? "Now" : "Next"
+        return "\(timing): \(overlapping) overlapping calls"
+      }
     }
     let timed = events.filter { !$0.isAllDay }
     guard let event = calls.first?.0 ?? timed.first(where: { $0.start > now }) ?? timed.first else {
-      return eventCount(events.count)
+      return eventCount(total)
     }
     if event.start <= now {
-      let service = place(event, meetingLinks(in: event))
+      let location = place(event)
+      let service = location.isEmpty ? calls.first?.1.service ?? "" : location
       let end = endsSameDay(event) ? time(event.end) : "\(shortDay(event.end)) \(time(event.end))"
       return "Now: \(title(event)) until \(end)" + (service.isEmpty ? "" : " · " + service)
     }
@@ -319,20 +324,34 @@ private struct Agenda {
     return "Next: \(title(event)) \(start)"
   }
 
-  /// An event's row: its time, title and place, and its facts as the detail Return opens.
+  /// An event’s row with its facts and links in the detail, and Join first in Agenda when it fits.
   private func row(_ event: AgendaEvent, _ actions: inout [String], span: String? = nil) -> String {
     let links = meetingLinks(in: event)
     let kind = span == nil ? "row" : "span"
     let timeLabel = layout == .agenda ? label(event) : time(event.start)
     var tag = #"<\#(kind) label="\#(timeLabel)" title="\#(attribute(title(event)))"\#(span ?? "")"#
-    let place = place(event, links)
-    if !place.isEmpty { tag += #" subtitle="\#(attribute(place))""# }
-    if layout == .agenda, !event.isAllDay, event.start <= now { tag += #" value="Now""# }
+    let location = place(event)
+    let service = links.first?.service
+    let subtitle = layout == .week && location.isEmpty ? service ?? "" : location
+    if !subtitle.isEmpty { tag += #" subtitle="\#(attribute(subtitle))""# }
+    var primary: MeetingLink?
+    if layout == .agenda {
+      let live = !event.isAllDay && event.start <= now
+      let value = [live ? "Now" : nil, service == "Microsoft Teams" ? "Teams" : service]
+        .compactMap { $0 }.joined(separator: " · ")
+      if !value.isEmpty { tag += #" value="\#(value)""# }
+      if let link = links.first {
+        let join = tag + #" open="\#(link.url.absoluteString)" action="Join" action-first="true""#
+        if join.utf8.count < 4096 {
+          tag = join
+          primary = link
+        }
+      }
+    }
     var detail = [property("When", when(event)), property("Calendar", names[event.calendarID] ?? "")]
-    let location = event.location.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !location.isEmpty, meetingLink(location) == nil { detail.append(property("Location", location)) }
+    if !location.isEmpty { detail.append(property("Location", location)) }
     var linkRows: [String] = []
-    for link in links {
+    for link in links where link != primary {
       linkRows += target(
         "Join \(link.service)", subtitle: link.host, icon: "video", link.url, action: "Join", event: event,
         &actions)
@@ -469,10 +488,11 @@ private struct Agenda {
     return title.isEmpty ? "Untitled" : title
   }
 
-  /// Where it is: a place, else the call's service.
-  private func place(_ event: AgendaEvent, _ links: [MeetingLink]) -> String {
-    let location = event.location.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-    return location.isEmpty || meetingLink(location) != nil ? links.first?.service ?? "" : location
+  private func place(_ event: AgendaEvent) -> String {
+    event.location.split(whereSeparator: \.isWhitespace).filter { word in
+      let scheme = URL(string: String(word))?.scheme?.lowercased()
+      return scheme != "http" && scheme != "https"
+    }.joined(separator: " ")
   }
 
   private func time(_ date: Date) -> String { date.formatted(style.hour().minute()) }

@@ -274,7 +274,7 @@ struct Page: Equatable, Sendable {
   }
 
   /// What an item is: shown only, with no action and no content; a target, which needs a title and
-  /// whose content is its detail, opened by Return unless the item copies its body; or dropped, when
+  /// whose content opens as detail by default; or dropped, when
   /// its action is refused or ambiguous or a target has no title.
   private enum Kind {
     case shown
@@ -291,7 +291,8 @@ struct Page: Equatable, Sendable {
     switch action(values, detail: detail, runs: runs) {
     case .refused: return .dropped
     case .none: (named, beforeDetail) = (nil, false)
-    case .one(let action, let primary): (named, beforeDetail) = (action, primary)
+    case .one(let action, let primary):
+      (named, beforeDetail) = (action, primary || value("action-first") == "true")
     }
     if named == nil, detail == nil { return .shown }
     guard !title.isEmpty else { return .dropped }

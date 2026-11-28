@@ -432,3 +432,16 @@ private func kinds(_ blocks: [PageBlock]) -> [String] {
   #expect(kinds(blocks) == ["p", "timeline1", "p"])
   #expect(page.targets.map(\.title) == ["Compile"])
 }
+
+@MainActor @Test func canvasFieldLabelsWrapWhenTheyNeedMoreRoom() throws {
+  let renderer = NativePageRenderer()
+  func height(_ label: String) throws -> CGFloat {
+    let field = try #require(Page.Control(Field(name: "grid", type: .bool, description: label)))
+    let page = Page(body: #"<field name="grid"/>"#, runs: true, controls: [field])
+    renderer.update(page, turn: "grid", width: 320)
+    return renderer.contentHeight
+  }
+  let short = try height("Show grid")
+  let long = try height(String(repeating: "Show guides for the selected region. ", count: 7))
+  #expect(long > short + 20)
+}
