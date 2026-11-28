@@ -3,7 +3,7 @@ import Synchronization
 import cmark_gfm
 import cmark_gfm_extensions
 
-/// cmark owns Markdown. Only controls resolved from the host's Page can produce interactive HTML.
+/// cmark owns Markdown. Only controls resolved from the host's Page can produce interactive fields.
 enum AnswerMarkdown {
   private static let lock = Mutex(())
   private static let tagLimit = 4096
@@ -12,10 +12,6 @@ enum AnswerMarkdown {
     pattern: #"^</?([A-Za-z][A-Za-z0-9_-]*)(?:\s(?:[^<>"']|"[^"]*"|'[^']*')*)?/?>$"#)
   static let attributes = try! NSRegularExpression(
     pattern: #"([a-z][a-z0-9-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s/>]+))"#)
-  static func escape(_ value: String) -> String {
-    value.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
-      .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
-  }
   private static let inlineSyntax = CharacterSet(charactersIn: "\r\n!\"#&'()*<>[\\]_`|")
   /// Embed text within Markdown without letting it change the surrounding syntax.
   static func literal(_ text: String) -> String {
@@ -52,16 +48,15 @@ enum AnswerMarkdown {
   /// so `Page` and the renderer agree on what is code.
   struct Reading {
     var text = ""
-    var tokens: [String: String] = [:]
-    /// The tokens that open (+1) or close (−1) a card or columns, whose lines keep their breaks.
-    var boxes: [String: Int] = [:]
     /// Where each kept stretch of the source landed in `text`.
     var spans: [(normalized: Int, original: Int)] = []
     /// Where code is in the source, so tags in it stay text.
     var code: [Range<Int>] = []
     var blocks: [Block] = []
     var tags: [Tag] = []
-    fileprivate var tree: Tree?
+    /// What each placeholder stands for in `PageDocument`.
+    var natives: [String: Native] = [:]
+    var tree: Tree?
     /// The source offset of an offset in `text`.
     func original(_ offset: Int) -> Int {
       let span = spans.last { $0.normalized <= offset } ?? (0, 0)
@@ -73,14 +68,14 @@ enum AnswerMarkdown {
   static func read(_ source: String, streaming: Bool = false) -> Reading {
     lock.withLock { _ in reading(source, streaming: streaming, nonce: "WICKET", render: false) }
   }
-  /// `render` also builds the markup of each tag and keeps the tree, for the renderer.
+  /// `render` resolves the placeholders and keeps the tree.
   private static func reading(
     _ source: String, streaming: Bool, nonce: String, render: Bool, fields: [String: Page.Control] = [:]
   ) -> Reading {
     // Code needs a backtick, a tilde fence or an indent of four columns: without one, nothing is code.
     if !source.utf8.contains(where: { $0 == 96 || $0 == 126 || $0 == 9 }), !source.contains("    ") {
       var result = normalize(
-        source, protected: [], nonce: nonce, streaming: streaming, markup: render, fields: fields)
+        source, protected: [], nonce: nonce, streaming: streaming, resolve: render, fields: fields)
       if render { result.tree = Tree(result.text) }
       return result
     }
@@ -93,7 +88,7 @@ enum AnswerMarkdown {
     var protected = parsed.code.map { result.original($0.lowerBound)..<result.original($0.upperBound) }
     for _ in 0..<4 {
       result = normalize(
-        source, protected: protected, nonce: nonce, streaming: streaming, markup: render, fields: fields)
+        source, protected: protected, nonce: nonce, streaming: streaming, resolve: render, fields: fields)
       if result.text != parsedText {
         parsedText = result.text
         parsed = scan(parsedText, streaming: streaming)
@@ -110,8 +105,27 @@ enum AnswerMarkdown {
     return result
   }
 
+  /// A placeholder's tag, chart or canvas field, as `normalize` resolved it.
+  enum Native {
+    case tag(name: String, values: [(String, String)], closing: Bool, selfClosing: Bool)
+    case chart(Chart, pending: Bool)
+    case field(Page.Control)
+  }
+  /// The page as the native renderer reads it: the parsed tree, with each placeholder's meaning in
+  /// `Reading.natives`, and the pattern of its placeholders. The tree lives as long as `body` runs.
+  static func withTree<T>(
+    _ input: String, streaming: Bool, fields: [String: Page.Control],
+    _ body: (Reading, Tree, NSRegularExpression) -> T
+  ) -> T {
+    lock.withLock { _ in
+      let nonce = "WICKET" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+      let reading = reading(input, streaming: streaming, nonce: nonce, render: true, fields: fields)
+      return body(reading, reading.tree!, try! NSRegularExpression(pattern: nonce + "T[0-9]+END"))
+    }
+  }
+
   /// A cmark document with GitHub tables, freed with it.
-  fileprivate final class Tree {
+  final class Tree {
     let parser: UnsafeMutablePointer<cmark_parser>
     let root: UnsafeMutablePointer<cmark_node>
     /// Where each line starts (UTF-8 offsets; LF, CRLF and bare CR end a line).
@@ -231,16 +245,9 @@ enum AnswerMarkdown {
     }
     return false
   }
-  /// The page as HTML. `code` names the fenced blocks that get a copy button (`Page.code`).
-  static func html(
-    _ input: String, code: [Page.Code] = [], streaming: Bool = false, fields: [String: Page.Control] = [:]
-  ) -> String {
-    lock.withLock { _ in render(input, code: code, streaming: streaming, fields: fields) }
-  }
-
   private static func normalize(
     _ source: String, protected: [Range<Int>], nonce: String, streaming: Bool, inline: Bool = false,
-    markup: Bool = false, fields: [String: Page.Control] = [:]
+    resolve: Bool = false, fields: [String: Page.Control] = [:]
   ) -> Reading {
     let bytes = Array(source.utf8)
     var result = Reading()
@@ -304,7 +311,7 @@ enum AnswerMarkdown {
         continue
       }
       if !escaped, name == "chart", !closing {
-        let chart = readChart(bytes, opening: tag, collect: markup)
+        let chart = readChart(bytes, opening: tag, collect: resolve)
         result.tags.append(
           Tag(
             range: tag.range.lowerBound..<chart.end, name: name, values: [], closing: false,
@@ -314,7 +321,7 @@ enum AnswerMarkdown {
         let key = nonce + "T\(result.tags.count)END"
         add("\n\n\(key)\n\n")
         if let content = chart.content {
-          result.tokens[key] = content.html(pending: streaming && !chart.closed, ordinal: result.tags.count)
+          result.natives[key] = .chart(content, pending: streaming && !chart.closed)
         }
         continue
       }
@@ -325,42 +332,18 @@ enum AnswerMarkdown {
       }
       result.tags.append(tag)
       let key = nonce + "T\(result.tags.count)END"
-      if name == "field", markup {
+      if name == "field", resolve {
         if !streaming, selfClosing, !closing, let name = values.first(where: { $0.0 == "name" })?.1,
           let field = fields[name]
         {
           add("\n\n\(key)\n\n")
-          result.tokens[key] = control(field)
+          result.natives[key] = .field(field)
         }
         continue
       }
       add(name == "badge" ? key : "\n\n\(key)\n\n")
-      if !selfClosing, ["card", "columns"].contains(name) { result.boxes[key] = closing ? -1 : 1 }
-      guard markup else { continue }
-      var attrs = ""
-      var fields = ""
-      var numbers = ""
-      for (key, value) in values {
-        attrs += " data-\(key)=\"\(escape(value))\""
-        if let number = Double(value), number.isFinite, abs(number) <= 1_000_000 {
-          numbers += "--\(key):\(number);"
-        }
-      }
-      // Fields go in slot order, whatever order the attributes were written in: a row lays them out
-      // in document order. A target's id is for the bridge, not text.
-      let slots = ["label", "title", "subtitle", "value"]
-      for (key, value) in values.enumerated().sorted(by: {
-        (slots.firstIndex(of: $0.element.0) ?? slots.count, $0.offset)
-          < (slots.firstIndex(of: $1.element.0) ?? slots.count, $1.offset)
-      }).map(\.element) where key != "target" {
-        fields += "<span data-field=\"\(key)\">\(escape(value))</span>"
-      }
-      // A tile lays out its fields by its own width, which only an element inside it can follow.
-      if name == "tile" { fields = "<w-fields>\(fields)</w-fields>" }
-      result.tokens[key] =
-        closing
-        ? "</w-\(name)>"
-        : "<w-\(name)\(attrs) style=\"\(numbers)\">" + (selfClosing ? fields + "</w-\(name)>" : "")
+      guard resolve else { continue }
+      result.natives[key] = .tag(name: name, values: values, closing: closing, selfClosing: selfClosing)
     }
     keep(cursor..<bytes.count)
     return result
@@ -453,143 +436,6 @@ enum AnswerMarkdown {
     return name.count == written.count ? known.contains { $0.hasPrefix(text) } : known.contains(text)
   }
 
-  private static func render(
-    _ input: String, code: [Page.Code], streaming: Bool, fields: [String: Page.Control]
-  ) -> String {
-    let nonce = "WICKET" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
-    let reading = reading(input, streaming: streaming, nonce: nonce, render: true, fields: fields)
-    var tokens = reading.tokens
-    let boxes = reading.boxes
-    let tree = reading.tree!
-    /// A placeholder for markup, which cmark keeps as text and which is restored after it rendered.
-    /// Numbered after every tag's, so no key is used twice.
-    func token(_ markup: String) -> String {
-      let key = nonce + "T\(reading.tags.count + tokens.count)END"
-      tokens[key] = markup
-      return key
-    }
-    let iterator = cmark_iter_new(tree.root)!
-    // Inside a card or columns each line is its own (a day's high, low and sky), so a soft break there
-    // is a hard one. Tokens of containers stand alone as paragraphs, in reading order.
-    var depth = 0
-    var breaks: [UnsafeMutablePointer<cmark_node>] = []
-    let copies = Dictionary(code.map { ($0.start, $0.id) }) { first, _ in first }
-    var copied: [(node: UnsafeMutablePointer<cmark_node>, id: String)] = []
-    var rawHTML: [(node: UnsafeMutablePointer<cmark_node>, block: Bool)] = []
-    while cmark_iter_next(iterator) != CMARK_EVENT_DONE {
-      guard cmark_iter_get_event_type(iterator) == CMARK_EVENT_ENTER, let node = cmark_iter_get_node(iterator)
-      else { continue }
-      let type = cmark_node_get_type(node)
-      if type == CMARK_NODE_HTML_BLOCK || type == CMARK_NODE_HTML_INLINE {
-        rawHTML.append((node, type == CMARK_NODE_HTML_BLOCK))
-      }
-      if type == CMARK_NODE_IMAGE { cmark_node_set_url(node, "") }
-      if type == CMARK_NODE_LINK, !AnswerLink.allowed(URL(string: String(cString: cmark_node_get_url(node))))
-      {
-        cmark_node_set_url(node, "")
-      }
-      if type == CMARK_NODE_TEXT, !boxes.isEmpty,
-        let box = boxes[String(cString: cmark_node_get_literal(node))]
-      {
-        depth += box
-      }
-      if type == CMARK_NODE_SOFTBREAK, depth > 0 { breaks.append(node) }
-      // The page's code targets, by where their block starts in the source.
-      if type == CMARK_NODE_CODE_BLOCK, !copies.isEmpty, let id = copies[reading.original(tree.start(node))] {
-        copied.append((node, id))
-      }
-    }
-    cmark_iter_free(iterator)
-    for soft in breaks {
-      cmark_node_insert_before(soft, cmark_node_new(CMARK_NODE_LINEBREAK))
-      cmark_node_free(soft)
-    }
-    // cmark can still find raw HTML outside our tag syntax or beyond the tag size limit.
-    for (node, block) in rawHTML {
-      let literal = cmark_node_new(CMARK_NODE_TEXT)!
-      cmark_node_set_literal(literal, cmark_node_get_literal(node))
-      if block {
-        let paragraph = cmark_node_new(CMARK_NODE_PARAGRAPH)!
-        cmark_node_append_child(paragraph, literal)
-        cmark_node_replace(node, paragraph)
-      } else {
-        cmark_node_replace(node, literal)
-      }
-      cmark_node_free(node)
-    }
-    /// A paragraph holding only a token, which the paragraph rule below unwraps.
-    func paragraph(_ markup: String) -> UnsafeMutablePointer<cmark_node> {
-      let paragraph = cmark_node_new(CMARK_NODE_PARAGRAPH)!
-      let text = cmark_node_new(CMARK_NODE_TEXT)!
-      cmark_node_set_literal(text, token(markup))
-      cmark_node_append_child(paragraph, text)
-      return paragraph
-    }
-    // A code target is the block in a box with the copy button, which only the host writes.
-    for (node, id) in copied {
-      cmark_node_insert_before(
-        node,
-        paragraph(
-          "<div data-target=\"\(escape(id))\" data-icon=\"doc.on.doc\"><button aria-label=\"Copy code\"></button>"
-        ))
-      cmark_node_insert_after(node, paragraph("</div>"))
-    }
-    let rendered = cmark_render_html(
-      tree.root, CMARK_OPT_DEFAULT, cmark_parser_get_syntax_extensions(tree.parser))!
-    defer { free(rendered) }
-    var result = String(cString: rendered).replacingOccurrences(
-      of: #"<img\b[^>]*>"#, with: "", options: .regularExpression)
-    let token = nonce + "T[0-9]+END"
-    let paragraphs = try! NSRegularExpression(pattern: "<p>(" + token + ")</p>\n")
-    result = paragraphs.stringByReplacingMatches(
-      in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "$1")
-    let ns = result as NSString
-    let positions = try! NSRegularExpression(pattern: "<[^>]*>|" + token)
-    var pieces: [String] = []
-    var cursor = 0
-    // Restore text positions only, never tokens inside an HTML attribute produced by cmark.
-    for match in positions.matches(in: result, range: NSRange(location: 0, length: ns.length)) {
-      guard let html = tokens[ns.substring(with: match.range)] else { continue }
-      pieces.append(ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor)))
-      pieces.append(html)
-      cursor = NSMaxRange(match.range)
-    }
-    pieces.append(ns.substring(from: cursor))
-    return group(pieces.joined())
-  }
-
-  private static func control(_ field: Page.Control) -> String {
-    let id = escape(field.id)
-    let label = escape(field.label)
-    var caption = "<label for=\"\(id)\">\(label)</label>"
-    let input: String
-    switch field.control {
-    case .toggle:
-      let checked = field.value == "true" ? " checked" : ""
-      input = "<input id=\"\(id)\" type=\"checkbox\" switch tabindex=\"-1\"\(checked)>"
-    case .slider(let min, let max, let step):
-      input = """
-        <input id="\(id)" type="range" tabindex="-1" min="\(min)" max="\(max)" step="\(step)" value="\(field.value)">
-        """
-    case .choice(let options) where options.count <= 4:
-      caption = "<span id=\"\(id)\">\(label)</span>"
-      let segments = options.map { option in
-        let checked = option.value == field.value ? " checked" : ""
-        return """
-          <label><input type="radio" name="\(id)" value="\(escape(option.value))" tabindex="-1"\(checked)>\
-          <span>\(escape(option.label))</span></label>
-          """
-      }.joined()
-      input = "<div class=\"segments\" role=\"radiogroup\" aria-labelledby=\"\(id)\">\(segments)</div>"
-    case .choice(let options):
-      let choices = options.map { option in
-        let selected = option.value == field.value ? " selected" : ""
-        return "<option value=\"\(escape(option.value))\"\(selected)>\(escape(option.label))</option>"
-      }.joined()
-      input = "<select id=\"\(id)\" tabindex=\"-1\">\(choices)</select>"
-    }
-    return "<w-field data-key=\"\(escape(field.name))\" data-target=\"\(id)\">\(caption)\(input)</w-field>"
-  }
   /// A tag's attributes, in the order written.
   static func values(_ tag: String) -> [(String, String)] {
     let ns = tag as NSString
@@ -599,44 +445,6 @@ enum AnswerMarkdown {
     }
   }
 
-  /// The tags a run of which Wicket groups, and the element that holds the run.
-  static let groups = ["row": "rows", "progress": "progresses", "field": "field-group"]
-
-  /// One row or progress tag; a run of the same kind is one group. Rows without a title (properties, a
-  /// label and a value) never join a list of titled rows, so an extension's properties stay apart from
-  /// the JSON items that follow them.
-  private static let groupable = try! NSRegularExpression(
-    pattern: #"<w-(row|progress|field)\b([^>]*)>(?:(?!</w-\1>).)*</w-\1>\s*"#,
-    options: .dotMatchesLineSeparators)
-  /// Wraps each run of adjacent tags of one kind in its group element.
-  private static func group(_ html: String) -> String {
-    let ns = html as NSString
-    var pieces: [String] = []
-    var cursor = 0
-    var run: (kind: String, key: String, range: NSRange)?
-    func close() {
-      guard let (kind, _, range) = run else { return }
-      pieces.append(ns.substring(with: NSRange(location: cursor, length: range.location - cursor)))
-      let holder = "w-" + groups[kind]!
-      pieces.append("<\(holder)>\(ns.substring(with: range))</\(holder)>\n")
-      cursor = NSMaxRange(range)
-      run = nil
-    }
-    for match in groupable.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
-      let kind = ns.substring(with: match.range(at: 1))
-      let attributes = ns.substring(with: match.range(at: 2))
-      let key = kind == "row" && !attributes.contains("data-title=") ? "property" : kind
-      if let current = run, current.key == key, NSMaxRange(current.range) == match.range.location {
-        run = (kind, key, NSUnionRange(current.range, match.range))
-        continue
-      }
-      close()
-      run = (kind, key, match.range)
-    }
-    close()
-    pieces.append(ns.substring(from: cursor))
-    return pieces.joined()
-  }
 }
 
 enum AnswerLink {

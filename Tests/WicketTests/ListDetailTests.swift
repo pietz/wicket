@@ -6,12 +6,12 @@ import Testing
 
 /// An extension of manifest items named Notes, found at the root like apps; the first and last carry a
 /// detail.
-@MainActor private func notes(in root: URL) async throws -> LauncherModel {
+@MainActor private func notes(in root: URL, searchable: Bool = true) async throws -> LauncherModel {
   let folder = root.appending(path: "extensions/notes")
   try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
   let manifest: [String: Any] = [
     "name": "Notes", "keyword": "notes",
-    "fields": [["name": "query", "type": "text", "description": "Filter notes"]],
+    "fields": searchable ? [["name": "query", "type": "text", "description": "Filter notes"]] : [],
     "items": [
       [
         "id": "alpha", "title": "Alpha note", "detail": "## Alpha\n<row label=\"Owner\" value=\"Ada\"/>",
@@ -78,6 +78,19 @@ import Testing
   await model.finish()
 }
 
+@MainActor @Test func anAddressSelectsTheFirstSplitRowWhenTheInputBelongsToTheAgent() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = try await notes(in: root, searchable: false)
+  model.navigator.go(try #require(Address(url: URL(string: "wicket://notes")!)))
+  await model.navigator.settled()
+  #expect(model.navigator.splits && model.navigator.selected?.row.id == "alpha")
+  #expect(model.navigator.preview?.page.source.contains("## Alpha") == true)
+  model.navigator.editInput("Summarize these notes")
+  #expect(model.navigator.selection == nil && model.navigator.returnAsksAgent)
+  await model.finish()
+}
+
 @MainActor @Test func onAPageAnItemsDetailOpensWithReturnLikeARows() async throws {
   let view = ProviderView(
     body: "## Week",
@@ -110,28 +123,28 @@ import Testing
     "![x](data:image/png;base64,iVBORw0KGgo=)\n\n<img src=\"data:image/png;base64,iVBORw0KGgo=\">\n\n<row title=\"T\" icon=\"url(data:x)\"/>"
   let page = Page(body: detail, runs: true)
   #expect(page.picture == nil)
-  let html = AnswerMarkdown.html(page.source, streaming: false)
-  #expect(!html.contains("<img"))
-  #expect(html.contains("&lt;img src=&quot;data:image/png;base64,iVBORw0KGgo=&quot;&gt;"))
-  #expect(!PageIcons.stylesheet(for: page).contains("data:image/png;base64,iVBOR"))
-  #expect(await PageIcons.picture(page.picture) == "")
+  let blocks = PageDocument(page, turn: "t", streaming: false).blocks
+  #expect(
+    blocks.map(\.renderedText) == [
+      #"<img src="data:image/png;base64,iVBORw0KGgo=">"#, "T",
+    ])
 }
 
-@MainActor @Test func aPictureIsDrawnDownscaledAsAHostRule() async throws {
+@MainActor @Test func aPictureMeasuresBeforeItsThumbnailLoads() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let large = folder.appending(path: "large.png")
   try testImage(2000, 1000).write(to: large)
-  let rule = await PageIcons.picture(large)
-  // At most 720 pixels on the longer side, drawn at half that in points; never enlarged.
-  #expect(
-    rule.hasPrefix("main::before") && rule.contains("min(100%, 360.0px)") && rule.contains("360.0 / 180.0"))
-  #expect(rule.contains("url(data:image/png;base64,"))
+  #expect(PagePictures.picture(large)?.size == CGSize(width: 360, height: 180))
+  let renderer = NativePageRenderer()
+  renderer.update(Page(body: "", runs: false, picture: large), turn: "picture")
+  #expect(renderer.contentHeight == 224)
+  let thumbnail = await PagePictures.thumbnail(large)?.value
+  #expect(thumbnail?.width == 720 && thumbnail?.height == 360)
   let small = folder.appending(path: "small.png")
   try testImage(40, 20).write(to: small)
-  #expect(await PageIcons.picture(small).contains("min(100%, 20.0px)"))
-  // A missing file draws nothing.
-  #expect(await PageIcons.picture(folder.appending(path: "gone.png")) == "")
+  #expect(PagePictures.picture(small)?.size == CGSize(width: 20, height: 10))
+  #expect(PagePictures.picture(folder.appending(path: "gone.png")) == nil)
 }
 
 @MainActor @Test func clipboardHistoryShowsTheNewestClipsDetailAtOnce() async throws {
@@ -157,8 +170,7 @@ import Testing
   #expect(shown.targets.isEmpty && shown.picture == nil)
   #expect(shown.source.contains("<row label=\"Lines\" value=\"4\"/>"))
   #expect(shown.source.contains("<row label=\"Characters\" value=\"\(text.count)\"/>"))
-  let html = AnswerMarkdown.html(shown.source, streaming: false)
-  #expect(html.contains("&lt;row title=&quot;Injected&quot;") && !html.contains("<w-row title=\"Injected\""))
+  #expect(PageDocument(shown, turn: "t", streaming: false).blocks.first == .code(text, target: nil))
   // The image's detail is its picture, named by the host, and its pixel and file size.
   model.navigator.move(1)
   let image = try #require(model.navigator.preview?.page)
@@ -166,7 +178,7 @@ import Testing
   #expect(image.picture == folder.appending(path: id + ".png"))
   #expect(image.source.contains("<row label=\"Dimensions\" value=\"32×24\"/>"))
   #expect(image.source.contains("<row label=\"File size\""))
-  #expect(await PageIcons.picture(image.picture).contains("data:image/png;base64,"))
+  #expect(await PagePictures.thumbnail(try #require(image.picture))?.value != nil)
   await model.finish()
 }
 
@@ -189,10 +201,8 @@ import Testing
   controller.show(orderFront: false, listen: false)
   model.navigator.go(Address(id: "notes"))
   await model.navigator.settled()
-  await controller.renderer.settled()
   #expect(controller.renderer.renderedTurn == "detail:extension:notes:alpha")
   model.navigator.move(2)
-  await controller.renderer.settled()
   #expect(controller.renderer.renderedTurn == "detail:extension:notes:gamma")
   controller.hide()
   await model.finish()

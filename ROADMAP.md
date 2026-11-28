@@ -4,8 +4,6 @@ Agreed upcoming work in order; unresolved items sit under **To decide**. Open pr
 
 **Core model:** the building blocks and how to check new work against them live in [docs/design.md](docs/design.md). The **path** for installs and settings is the catalog service and single `config.json` writer, exposed through headless commands, a canvas page, and Settings. Onboarding is a host command page on that path.
 
-The canvas is an HTML (WebKit) page by deliberate decision: flexible to design and theme, and unnoticeably fast once warm. Raise it openly if concrete negatives accumulate.
-
 ## 3. Extension catalog
 
 Move extensions out of the app bundle into an official GitHub repository so users install only what they choose. Build headless first so the agent can install before any UI exists.
@@ -24,7 +22,7 @@ Move extensions out of the app bundle into an official GitHub repository so user
 
 A first-launch host command page in the canvas: catalog grid, agent and model picker, permissions declared by chosen extensions (especially Accessibility, which cannot prompt inline—each with a System Settings button and live granted check), and appearance sliders that preview live and save on release. When offline or the catalog is unreachable, skip the grid cleanly and offer it later.
 
-The onboarding trial (branch `t3/canvas-onboarding-trial`, `tools/canvas-trial/`) showed the canvas handles it with about 90 lines of CSS and no app code. Design requirements: a calm dedicated frame (title, page, Continue—no search field, Actions header, or Ask agent hint), thin accent-ring keyboard selection instead of a grey box, verified over real glass on screen.
+Give onboarding a dedicated frame with a title, page and Continue button. Use a thin accent ring for keyboard selection and verify focus over real glass on screen.
 
 ## 5. Drafts
 
@@ -50,14 +48,13 @@ Wicket implements an ACP v1 client in Swift (reusing `JSONLines`; no Node, no ne
 Unordered; scheduled after the steps above:
 
 - Add a **Run agent** entry in ⌘K, available even with no selection.
-- Add canvas text fields after offscreen tests of Tab/⇧Tab, Japanese IME, and caret preservation through re-renders.
-- Ship and update base layout/components in `core.css` (with optional user override), keeping user tokens in `theme.css` (migrating existing themes and preserving system-derived row/selection colors).
+- Add native text fields to pages. Verify Tab and ⇧Tab, Japanese IME, and caret preservation across page updates.
 - Add **Allow for this conversation** as a third agent permission option alongside Allow once and Don't allow.
 - Build a reusable verification harness for an unlocked Mac: launch Wicket Dev with a scratch config, open panel, drive keys, capture screenshots over light/dark/busy backgrounds, and quit cleanly.
 - Add a theme option to join the search pill and card into one glass shape (`tools/glass-lab`, ⌘J); separate stays default.
 - Add a Weather **Source** setting (Open-Meteo by default; MET Norway as the first alternative) so users can switch forecast providers.
 - Add **Current location** to Weather: Wicket holds the macOS location permission (asked once when the user picks it) and passes a city-level location with Weather requests; the default city stays as the fallback.
-- Add an inline rich root-row primitive (a bounded native strip of labeled values + SF Symbols inside a `prominent: true` root item, inspired by Raycast macOS v2.12's inline Weather card) to unlock glanceable inline Weather, Time Zones, and System Monitor results without embedding WebKit in the root list.
+- Add an inline rich root-row primitive (a bounded native strip of labeled values + SF Symbols inside a `prominent: true` root item, inspired by Raycast macOS v2.12's inline Weather card) to unlock glanceable inline Weather, Time Zones, and System Monitor results in the root list.
 
 ## Throughout
 

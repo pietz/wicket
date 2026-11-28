@@ -62,5 +62,16 @@
     "text": [
       "p95 latency"
     ]
+  },
+  "prose-blocks": {
+    "question": "What changed in 2.4?",
+    "body": "## Release 2.4\nThree fixes and a **faster** start, with `wicket --version` reporting the build.\n\n- Quicker launch from the hotkey\n- Steadier streaming in long replies\n- Calendar shows all-day events first\n\n> Restart once after updating.\n\n| Area | Before | After |\n|:-----|------:|------:|\n| Launch | 120 ms | 42 ms |\n| Search | 18 ms | 9 ms |\n\n```sh\nswift build -c release\nswift test --filter Calendar\n```\n\n---\nNotes are in the [changelog](https://example.com/changelog).",
+    "text": [
+      "Release 2.4",
+      "Quicker launch",
+      "Restart once",
+      "Launch",
+      "swift build"
+    ]
   }
 }

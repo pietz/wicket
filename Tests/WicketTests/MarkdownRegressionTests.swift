@@ -4,42 +4,42 @@ import Testing
 @testable import WicketApp
 
 @Test(arguments: ["\r\n", "\r"]) func crlfFencedCodeDoesNotCrash(newline: String) {
-  let html = AnswerMarkdown.html(
-    ["Heading", "", "```swift", "let x = 1", "```", "After"].joined(separator: newline))
-  #expect(html.contains("let x = 1"))
-  #expect(html.contains("After"))
+  let blocks = document(
+    ["Heading", "", "```swift", "let x = 1", "```", "After"].joined(separator: newline)
+  ).blocks
+  #expect(blocks.map(\.renderedText) == ["Heading", "let x = 1", "After"])
 }
 @Test func completedAnswerKeepsUnfinishedTagLikeText() {
-  #expect(AnswerMarkdown.html("use i<count in loop").contains("i&lt;count in loop"))
+  #expect(text("use i<count in loop").contains("i<count in loop"))
   // While streaming, only what can still become a Wicket tag waits.
-  #expect(AnswerMarkdown.html("use i<count in loop", streaming: true).contains("in loop"))
-  #expect(!AnswerMarkdown.html("use <row title=\"A", streaming: true).contains("row"))
-  #expect(!AnswerMarkdown.html("use <ch", streaming: true).contains("ch"))
+  #expect(text("use i<count in loop", streaming: true).contains("in loop"))
+  #expect(!text("use <row title=\"A", streaming: true).contains("row"))
+  #expect(!text("use <ch", streaming: true).contains("ch"))
 }
 @Test(arguments: [
-  (#"Use \<Button>"#, "<p>Use &lt;Button&gt;</p>"),
-  (#"Use \<button"#, "<p>Use &lt;button</p>"),
+  (#"Use \<Button>"#, "Use <Button>"),
+  (#"Use \<button"#, "Use <button"),
   (
     #"Use \<Button label='**B** <row title="Literal" copy="no"/>'>"#,
-    "<p>Use &lt;Button label='**B** &lt;row title=&quot;Literal&quot; copy=&quot;no&quot;/&gt;'&gt;</p>"
+    "Use <Button label='**B** <row title=\"Literal\" copy=\"no\"/>'>"
   ),
-  ("<!-- <Button> -->", "<p>&lt;!-- &lt;Button&gt; --&gt;\n</p>"),
+  ("<!-- <Button> -->", "<!-- <Button> -->"),
   (
     #"Use \<row title="Literal" copy="no"/>"#,
-    "<p>Use &lt;row title=&quot;Literal&quot; copy=&quot;no&quot;/&gt;</p>"
+    "Use <row title=\"Literal\" copy=\"no\"/>"
   ),
   (
     #"Use <!-- <row title="Literal" copy="no"/> -->"#,
-    "<p>Use &lt;!-- &lt;row title=&quot;Literal&quot; copy=&quot;no&quot;/&gt; --&gt;</p>"
+    "Use <!-- <row title=\"Literal\" copy=\"no\"/> -->"
   ),
-  ("Use `<Button>`", "<p>Use <code>&lt;Button&gt;</code></p>"),
+  ("Use `<Button>`", "Use <Button>"),
 ])
 func tagsInLiteralMarkdownContextsStayText(input: String, expected: String) {
   for streaming in [false, true] {
     let page = Page(body: input, runs: false, streaming: streaming)
     #expect(page.targets.isEmpty)
     #expect(page.source == input)
-    #expect(AnswerMarkdown.html(page.source, streaming: streaming) == expected + "\n")
+    #expect(text(page.source, streaming: streaming).trimmingCharacters(in: .newlines) == expected)
   }
 }
 @Test func tagsStillRenderAfterCommentsAndEscapedBackslashes() {
@@ -51,18 +51,18 @@ func tagsInLiteralMarkdownContextsStayText(input: String, expected: String) {
     | \\<badge label="Table"/> |
     """#
   let page = Page(body: input, runs: false)
-  let html = AnswerMarkdown.html(page.source)
-  #expect(
-    html.contains(
-      #"<li>Use &lt;!-- &lt;badge label=&quot;Literal&quot;/&gt; --&gt; <w-badge data-label="List""#))
-  #expect(html.contains(#"<td>\<w-badge data-label="Table""#))
+  let blocks = PageDocument(page, turn: "t", streaming: false).blocks
+  #expect(blocks.map(\.renderedText) == [#"Use <!-- <badge label="Literal"/> --> List"#, "Status\n\\Table"])
 }
 @Test func largeTagInputHasBoundedProcessingCost() {
   let input =
     "<card" + String(repeating: " ", count: 12_000) + "<\n"
     + String(repeating: "<badge label=\"Ready\"/>", count: 4000)
   let start = ContinuousClock.now
-  let html = AnswerMarkdown.html(input)
-  #expect(html.contains("Ready"))
+  #expect(text(input).contains("Ready"))
   #expect(ContinuousClock.now - start < .seconds(1))
+}
+
+private func text(_ body: String, streaming: Bool = false) -> String {
+  document(body, streaming: streaming).blocks.map(\.renderedText).joined(separator: "\n")
 }

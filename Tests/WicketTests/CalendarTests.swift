@@ -161,9 +161,10 @@ private func detailOf(_ row: Row?) -> String? {
   #expect(!detail.contains(#"label="Location""#))
   let inner = Page(body: detail, runs: true)
   #expect(inner.targets.map(\.title) == ["Join Zoom"])
-  let html = AnswerMarkdown.html(inner.source)
-  #expect(!html.contains("evil.example\"") && !html.contains("<a "))
-  #expect(html.contains("Agenda:<br />") && html.contains("&lt;row title"))
+  let blocks = PageDocument(inner, turn: "t", streaming: false).blocks
+  #expect(blocks.flatMap(\.inlineLinks).isEmpty)
+  #expect(blocks.map(\.renderedText).joined().contains("Agenda:\n"))
+  #expect(blocks.map(\.renderedText).joined().contains("<row title"))
 
   let planning = try #require(targets.first { $0.title == "Quarterly planning" })
   let links = Page(body: try #require(detailOf(planning)), runs: true).targets

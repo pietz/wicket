@@ -85,8 +85,7 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
 }
 
 /// Stands in for the panel the screens show in, or stands before it (`next`), which still draws,
-/// measures and performs: records what leaves the screens and lets a test see each drawing and hold each
-/// page's measurement.
+/// records what leaves the screens and lets a test see each drawing.
 @MainActor final class RecordingSurface: PaletteSurface {
   let next: (any PaletteSurface)?
   var effects: [PaletteEffect] = []
@@ -94,8 +93,6 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
   var effectSucceeds = true
   /// Each drawing of what the screens show, once the panel drew it.
   var onDraw: () -> Void = {}
-  /// Measures an arriving page instead of the panel.
-  var onPrepare: ((Page, String) async -> PageMeasurement)?
   /// Every change drawn, in order.
   var changes: [PaletteChange] = []
   private(set) var presentation = PalettePresentation()
@@ -105,10 +102,6 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
     self.presentation = presentation
     changes.append(change)
     if change != .selection { onDraw() }
-  }
-  func prepare(_ page: Page, turn: String) async -> PageMeasurement {
-    if let onPrepare { return await onPrepare(page, turn) }
-    return await next?.prepare(page, turn: turn) ?? .unmeasured
   }
   /// Up unless a test says otherwise; hiding and showing it change it.
   var shown = true
@@ -137,14 +130,6 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
   func count(_ effect: PaletteEffect) -> Int { effects.filter { $0 == effect }.count }
 }
 
-extension AnswerRenderer {
-  /// Shows a page and returns once it is rendered and measured.
-  func render(_ page: Page, turn: String) async {
-    update(page, turn: turn, streaming: false)
-    await settled()
-  }
-}
-
 /// Starts a loopback HTTP fixture whose first stdout line is its assigned port.
 func serveHTTPFixture(in folder: URL, source: String) async throws -> (Process, String) {
   let server = Process()
@@ -166,4 +151,53 @@ func serveHTTPFixture(in folder: URL, source: String) async throws -> (Process, 
     throw ExtensionFailure("HTTP fixture did not report a port")
   }
   return (server, "http://127.0.0.1:\(port)")
+}
+
+func document(_ body: String, streaming: Bool = false) -> PageDocument {
+  PageDocument(Page(body: body, runs: false, streaming: streaming), turn: "test", streaming: streaming)
+}
+
+extension PageBlock {
+  var children: [PageBlock] {
+    switch self {
+    case .list(_, _, let items): items.flatMap { $0 }
+    case .quote(let blocks), .card(_, let blocks), .columns(let blocks): blocks
+    default: []
+    }
+  }
+
+  var renderedText: String {
+    switch self {
+    case .heading(_, let text), .paragraph(let text): text.plain
+    case .code(let code, _): code
+    case .table(let table):
+      ([table.header] + table.rows).map { $0.map(\.plain).joined(separator: " ") }
+        .joined(separator: "\n")
+    case .rows(let items), .properties(let items), .progresses(let items), .badges(let items):
+      items.map(\.renderedText).joined(separator: "\n")
+    case .tile(let item): item.renderedText
+    default: children.map(\.renderedText).joined(separator: "\n")
+    }
+  }
+
+  var inlineLinks: [URL] {
+    let text: [PageInline]
+    switch self {
+    case .heading(_, let inline), .paragraph(let inline): text = [inline]
+    case .table(let table): text = table.header + table.rows.flatMap { $0 }
+    default: return children.flatMap(\.inlineLinks)
+    }
+    return text.flatMap { inline in
+      inline.runs.flatMap { run -> [URL] in
+        guard case .text(let attributed) = run else { return [] }
+        return attributed.runs.compactMap(\.link)
+      }
+    }
+  }
+}
+
+extension PageItem {
+  fileprivate var renderedText: String {
+    [label, title, subtitle, value].compactMap { $0 }.joined(separator: " ")
+  }
 }

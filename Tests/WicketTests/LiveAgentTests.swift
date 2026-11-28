@@ -84,7 +84,6 @@ func liveAgentScratchConversation(_ name: String) async throws {
 
 @MainActor
 func liveScratchModel(in folder: URL, instructionTemplate: String? = nil) throws -> LauncherModel {
-  try AnswerRenderer.installFiles(in: folder)
   let model = LauncherModel.testing(in: folder, bundled: nil)
   let log = AgentLog(folder: folder.appending(path: "logs"))
   model.agent.connect = {

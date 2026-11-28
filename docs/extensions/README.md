@@ -24,7 +24,7 @@ Specs, shared decisions, and status for official extensions. Wicket-wide roadmap
 - **Existing mechanisms first:** Prefer static items, `run` (`hidden:true` where appropriate), fields, and pages. Add a core mechanism only when two real users need it.
 - **Inline answers and hotkeys.** Give an extension a keyword and command page when the page adds to the inline answer. Offer hotkeys for openable commands and items with a distinct action.
 - **Compatibility:** Follow the contract’s evolution rules for permanent names, widening accepted values, and keeping existing list entries visible. [Contract evolution policy](../../Sources/WicketApp/Resources/extension-contract.md#contract-evolution)
-- **Native frame, HTML pages; enabled means trusted:** Follow [AGENTS.md](../../AGENTS.md). A confirmation step for new extensions was considered and left out; it stays an option if real use shows a need.
+- **Native pages and trusted extensions:** Follow [AGENTS.md](../../AGENTS.md). A confirmation step for new extensions was considered and left out; it stays an option if real use shows a need.
 - **Permissions: Wicket holds them, extensions declare them, nobody asks twice:**
   - Extensions declare `permissions` and never prompt themselves or build helper apps.
   - Child processes inherit Wicket's Developer ID–signed grant, so updates never re-prompt (unlike ad-hoc helper apps whose cdhash changes on rebuild).

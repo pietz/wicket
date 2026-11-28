@@ -18,8 +18,6 @@ struct Page: Equatable, Sendable {
   var source: String
   /// Everything the user can act on, in reading order.
   var targets: [Row]
-  /// The SF Symbols the page's items and cards show, each one that exists, once.
-  var symbols: [String]
   /// Image requests for appended JSON items. Markdown tags only name symbols.
   let iconRequests: [String: ExtensionIcons.Request]
   /// The complete fenced code blocks the source shows, each with the id of the target that copies it:
@@ -27,7 +25,7 @@ struct Page: Equatable, Sendable {
   var code: [Code]
   /// The controls owned by the command on this page, by name.
   private(set) var fields: [String: Control]
-  /// Command replies can keep their turn for DOM patching while replacing positional click targets.
+  /// Command replies can keep their turn while replacing positional click targets.
   var targetRevision: String?
   /// An image file the host shows at the top of the page (`Row.picture`). Markdown never sets it.
   var picture: URL?
@@ -51,7 +49,6 @@ struct Page: Equatable, Sendable {
     func text(_ range: Range<Int>) -> String { String(decoding: bytes[range], as: UTF8.self) }
     var source = ""
     var targets: [Row] = []
-    var symbols: [String] = []
     var code: [Code] = []
     var fields: [String: Control] = [:]
     let controls = runs && !streaming && copies ? preparedControls : []
@@ -65,28 +62,21 @@ struct Page: Equatable, Sendable {
     /// The tag whose content is being read, with how deep its own kind nests in it.
     var open: (tag: AnswerMarkdown.Tag, depth: Int, copiesBody: Bool)?
     func nextID() -> String { "#\(targets.count - fields.count)" }
-    /// The tag the renderer gets, with its icon noted for the stylesheet.
-    func tag(_ name: String, _ id: String?, _ values: [(String, String)], icon: String?, close: Bool)
-      -> String
-    {
-      if let icon, !symbols.contains(icon) { symbols.append(icon) }
-      return Self.tag(name, id, values, icon: icon, close: close)
-    }
     func placeControl(_ field: Control) -> String {
       fields[field.name] = field
       targets.append(Row(id: field.id, title: field.label, actions: [RowAction(.field(field.name))]))
-      return tag("field", nil, [("name", field.name)], icon: nil, close: true)
+      return Self.tag("field", nil, [("name", field.name)], icon: nil, close: true)
     }
     /// An item's canonical tag, a target's with its id; empty when it is dropped. A bar or a badge has
     /// no detail: what it holds is dropped.
     func place(_ name: String, _ values: [(String, String)], detail: String?) -> String {
-      guard Self.actionable.contains(name) else { return tag(name, nil, values, icon: nil, close: true) }
+      guard Self.actionable.contains(name) else { return Self.tag(name, nil, values, icon: nil, close: true) }
       switch Self.item(name, values, detail: detail, id: nextID(), runs: runs) {
       case .dropped: return ""
-      case .shown: return tag(name, nil, values, icon: Self.symbol(values), close: true)
+      case .shown: return Self.tag(name, nil, values, icon: Self.symbol(values), close: true)
       case .target(let row):
         targets.append(row)
-        return tag(name, row.id, values, icon: row.icon, close: true)
+        return Self.tag(name, row.id, values, icon: row.icon, close: true)
       }
     }
     // Tags and code blocks in reading order, as the renderer reads them; a tag inside code is text.
@@ -104,7 +94,6 @@ struct Page: Equatable, Sendable {
         targets.append(
           Row(id: id, title: "Code", icon: "doc.on.doc", actions: [.copy(block.text, title: "Copy code")]))
         code.append(Code(id: id, start: source.utf8.count + block.start - cursor))
-        if !symbols.contains("doc.on.doc") { symbols.append("doc.on.doc") }
         continue
       }
       let name = current.name
@@ -143,7 +132,7 @@ struct Page: Equatable, Sendable {
       // A container shows what it holds; of its own attributes only a card's icon.
       case _ where Self.containers.contains(name):
         source +=
-          tag(name, nil, [], icon: name == "card" ? Self.symbol(current.values) : nil, close: false)
+          Self.tag(name, nil, [], icon: name == "card" ? Self.symbol(current.values) : nil, close: false)
           + (current.selfClosing ? "</\(name)>" : "")
       case _ where current.selfClosing: source += place(name, current.values, detail: nil)
       default:
@@ -167,7 +156,7 @@ struct Page: Equatable, Sendable {
     if let item = open {
       // An unfinished item shows without its detail or a target.
       let icon = Self.actionable.contains(item.tag.name) ? Self.symbol(item.tag.values) : nil
-      source += tag(item.tag.name, nil, item.tag.values, icon: icon, close: true)
+      source += Self.tag(item.tag.name, nil, item.tag.values, icon: icon, close: true)
     } else {
       source += text(cursor..<bytes.count)
     }
@@ -195,11 +184,10 @@ struct Page: Equatable, Sendable {
         symbol = choice.symbol
         if !choice.paths.isEmpty { iconRequests[row.id] = .init(paths: choice.paths, scope: iconScope) }
       }
-      source += "\n\n" + tag("row", row.id, values, icon: symbol, close: true)
+      source += "\n\n" + Self.tag("row", row.id, values, icon: symbol, close: true)
     }
     self.source = source
     self.targets = targets + own
-    self.symbols = symbols
     self.iconRequests = iconRequests
     self.code = code
     self.fields = fields

@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import WebKit
 
 // Glass Lab: Wicket's panel look with a list of looks inside it. ↑/↓ switch live, ⌘D cycles appearance, ⌘Q quits.
 
@@ -63,50 +62,49 @@ let looks: [Look] = [
   var appearanceName: String { ["System", "Light", "Dark"][appearance] }
 }
 
-struct Canvas: NSViewRepresentable {
-  let lightInk: Bool
-  /// Wicket's own canvas stylesheet, read from the repo so the lab always shows the current one.
-  static let css =
-    (try? String(
-      contentsOf: URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        .deletingLastPathComponent().deletingLastPathComponent()
-        .appending(path: "Sources/WicketApp/Resources/answers.css"),
-      encoding: .utf8)) ?? ""
-  static let body = """
-    <main>
-    <h1>9° · light rain</h1>
-    <p>Hamburg · feels like 6° · wind 18 km/h</p>
-    <p>Rain eases by <strong>4 pm</strong>, then dry and bright tomorrow. Details on <a href="#">the forecast page</a>, or run <code>wicket weather --hourly</code>.</p>
-    <table><thead><tr><th>Day</th><th align="right">High</th><th align="right">Low</th><th>Sky</th></tr></thead>
-    <tbody><tr><td>Fri</td><td align="right">12°</td><td align="right">5°</td><td>Showers</td></tr>
-    <tr><td>Sat</td><td align="right">14°</td><td align="right">7°</td><td>Cloudy</td></tr>
-    <tr><td>Sun</td><td align="right">16°</td><td align="right">8°</td><td>Sunny</td></tr></tbody></table>
-    <pre><code>curl wttr.in/Hamburg?format=3</code></pre>
-    <blockquote>Grey quote text: is this still easy to read?</blockquote>
-    </main>
-    """
-  final class Coordinator { var ink: Bool? }
-  func makeCoordinator() -> Coordinator { Coordinator() }
-  func makeNSView(context: Context) -> WKWebView {
-    let view = WKWebView()
-    view.setValue(false, forKey: "drawsBackground")
-    return view
-  }
-  func updateNSView(_ view: WKWebView, context: Context) {
-    if context.coordinator.ink != lightInk {
-      context.coordinator.ink = lightInk
-      load(view)
+/// The sample covers the launcher’s ink, accent, separators and box fill over each glass setting.
+struct SamplePage: View {
+  @Environment(\.colorScheme) private var appearance
+
+  private var muted: Color { Color(white: appearance == .dark ? 0.76 : 0.29) }
+  private var box: Color { .white.opacity(appearance == .dark ? 0.08 : 0.65) }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      VStack(alignment: .leading, spacing: 4) {
+        Text("9° · light rain").font(.system(size: 24, weight: .semibold))
+        Text("Hamburg · feels like 6° · wind 18 km/h").foregroundStyle(muted)
+      }
+      Text("Rain eases by **4 pm**, then dry and bright tomorrow. See [the forecast](https://www.dwd.de).")
+      Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 8) {
+        GridRow {
+          Text("Day")
+          Text("High").gridColumnAlignment(.trailing)
+          Text("Low").gridColumnAlignment(.trailing)
+          Text("Sky")
+        }
+        .foregroundStyle(muted)
+        Divider().gridCellUnsizedAxes(.horizontal)
+        ForEach([
+          ["Fri", "12°", "5°", "Showers"],
+          ["Sat", "14°", "7°", "Cloudy"],
+          ["Sun", "16°", "8°", "Sunny"],
+        ], id: \.self) { forecast in
+          GridRow { ForEach(forecast, id: \.self) { Text($0) } }
+        }
+      }
+      Text("curl wttr.in/Hamburg?format=3")
+        .font(.system(size: 13, design: .monospaced))
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(box, in: .rect(cornerRadius: 12))
+      Text("Grey quote text: is this still easy to read?")
+        .foregroundStyle(muted).padding(.leading, 12)
+        .overlay(alignment: .leading) { Rectangle().fill(.separator).frame(width: 2) }
     }
-  }
-  private func load(_ view: WKWebView) {
-    let ink =
-      lightInk
-      ? ":root { color-scheme: dark; --muted: rgb(255 255 255 / 72%); --secondary: rgb(255 255 255 / 70%); --surface: rgb(255 255 255 / 12%); }"
-      : ""
-    view.loadHTMLString(
-      "<!doctype html><html><head><meta charset=utf-8><style>\(Self.css)\n\(ink)</style></head><body>\(Self.body)</body></html>",
-      baseURL: nil)
+    .font(.system(size: 14))
+    .padding(20)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
   }
 }
 
@@ -287,7 +285,7 @@ struct LabView: View {
             .onChange(of: lab.selection) { _, id in withAnimation(.easeOut(duration: 0.12)) { proxy.scrollTo(id) } }
           }
           Divider().opacity(0.6)
-          Canvas(lightInk: look.lightInk && !reduceTransparency).frame(height: Self.canvasHeight)
+          SamplePage().frame(height: Self.canvasHeight)
           Divider().opacity(0.6)
           HStack {
             Text(lab.look.blur || lab.look.native == 1

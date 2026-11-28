@@ -39,7 +39,7 @@ func answerEval() async throws {
       for await result in group { finished.append(result) }
       return finished.sorted { $0.0 < $1.0 }.map(\.1)
     }
-    // WebKit captures share AppKit. Render one panel at a time.
+    // Render one offscreen panel at a time.
     for var candidate in batch {
       await evalRender(&candidate, in: directory)
       results.append(candidate)

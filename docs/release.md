@@ -61,7 +61,7 @@ The cask sets `auto_updates true`, so Homebrew hands updates to Sparkle; push `C
 
 `build-app.sh` copies:
 - `Contents/MacOS/Wicket` and `Contents/MacOS/wicket-js`
-- `Contents/Resources/Wicket_WicketApp.bundle` (instructions, CSS, bridge, contract, examples; resolved by `Bundle.wicket` with `Bundle.module` fallback for `swift run`/tests)
+- `Contents/Resources/Wicket_WicketApp.bundle` (instructions, contract, examples; resolved by `Bundle.wicket` with `Bundle.module` fallback for `swift run`/tests)
 - `Contents/Resources/Extensions/<name>/` (`wicket.json`, `main`, Swift sources)
 - `Contents/Frameworks/Sparkle.framework`
 

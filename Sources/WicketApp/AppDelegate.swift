@@ -37,7 +37,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       availableUpdate: { updater?.availableUpdate }, checkForUpdates: { updater?.checkForUpdates() },
       runtime: runtime)
     do {
-      try AnswerRenderer.installFiles(in: directory)
       try ExtensionHost.installFiles(in: directory)
     } catch {
       model.installProblem = error.localizedDescription

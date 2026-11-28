@@ -377,34 +377,6 @@ func aProgramListSwitchesContentAndHeightTogether(passesDeadline: Bool) async th
   await model.finish()
 }
 
-@MainActor @Test func theDeadlinePassingWhileAPageIsMeasuredShowsTheCommandThenThePage() async throws {
-  let (model, _, root) = try await transitions()
-  defer { try? FileManager.default.removeItem(at: root) }
-  let trace = Trace(model)
-  model.navigator.arrivalDeadline = .seconds(60)
-  var measuring: CheckedContinuation<Void, Never>?
-  trace.surface.onPrepare = { page, _ in
-    #expect(page.source == "# First page" && model.navigator.body == nil)
-    await withCheckedContinuation { measuring = $0 }
-    return .unmeasured
-  }
-  model.navigator.go(Address(id: "page"), submitted: true)
-  #expect(await eventually { measuring != nil })
-  #expect(model.navigator.command == nil)
-  // The deadline shows the command, still busy and with no page, while the same render goes on.
-  model.navigator.passDeadline()
-  #expect(
-    model.navigator.command?.busy == true && model.navigator.body == nil && model.navigator.results.isEmpty)
-  measuring?.resume()
-  #expect(await eventually { model.navigator.body == "# First page" })
-  #expect(
-    trace.frames.map { [$0.screen, $0.body ?? "-", "\($0.busy)"] } == [
-      ["root", "-", "false"], ["extension:page", "-", "true"], ["extension:page", "# First page", "false"],
-    ])
-  #expect(try logged(root, "page").count == 1)
-  await model.finish()
-}
-
 /// Running… and the spinner show only once a request has run for `busyDelay`: a quick answer replaces
 /// the screen with no busy state drawn first, a slow one says it is running until it answers.
 @MainActor @Test func theBusyStateShowsOnlyOnceARequestHasRunForItsDelay() async throws {
@@ -429,32 +401,6 @@ func aProgramListSwitchesContentAndHeightTogether(passesDeadline: Bool) async th
   try release(root)
   await model.navigator.settled()
   #expect(drawn.last?.busy == false && model.navigator.results.map(\.row.title) == ["Finished"])
-  await model.finish()
-}
-
-/// The busy delay times the process alone: once it has answered, the delay passing while its page is
-/// measured shows no busy state. (A process slower than the delay shows it already, as it should.)
-@MainActor @Test func measuringAnAnsweredPageNeverStartsTheBusyState() async throws {
-  let (model, _, root) = try await transitions()
-  defer { try? FileManager.default.removeItem(at: root) }
-  let surface = RecordingSurface()
-  model.navigator.surface = surface
-  var measuring: CheckedContinuation<Void, Never>?
-  surface.onPrepare = { _, _ in
-    await withCheckedContinuation { measuring = $0 }
-    return .unmeasured
-  }
-  model.navigator.arrivalDeadline = .seconds(60)
-  model.navigator.busyDelay = .milliseconds(300)
-  model.navigator.go(Address(id: "page"), submitted: true)
-  #expect(await eventually { measuring != nil })
-  model.navigator.passDeadline()
-  let answered = model.navigator.showsBusy
-  try await Task.sleep(for: .milliseconds(500))
-  #expect(model.navigator.command?.busy == true && model.navigator.showsBusy == answered)
-  measuring?.resume()
-  await model.navigator.settled()
-  #expect(model.navigator.body == "# First page" && !model.navigator.showsBusy)
   await model.finish()
 }
 
@@ -500,75 +446,6 @@ func goingBackShowsTheRootAtItsOwnHeight(secondEscape: Bool) async throws {
   await model.navigator.settled()
   #expect(model.navigator.command == nil && model.navigator.input.isEmpty && model.navigator.sizedRows == 8)
   #expect(trace.screens == ["root"] && trace.frames.allSatisfy { $0.height == full })
-  await model.finish()
-}
-
-/// One renderer serves every page: a measurement that returns after another page took the renderer (a
-/// list's detail on an arrow key) is measured again before the arriving page shows.
-@MainActor @Test func anArrivingPageWaitsForAMeasurementOfItsOwnTurnAndShowsAtItsHeight() async throws {
-  let (model, _, root) = try await transitions()
-  defer { try? FileManager.default.removeItem(at: root) }
-  model.navigator.arrivalDeadline = .seconds(60)
-  let surface = RecordingSurface()
-  model.navigator.surface = surface
-  var turns: [String] = []
-  surface.onPrepare = { page, turn in
-    turns.append(turn)
-    // The first pass measured another page; the command is still not shown.
-    if turns.count == 1 { return .superseded }
-    #expect(model.navigator.command == nil && page.source == "# First page")
-    return .measured(PageHeight(turn: turn, height: 300))
-  }
-  model.navigator.go(Address(id: "page"), submitted: true)
-  await model.navigator.settled()
-  #expect(turns.count == 2 && turns[0] == turns[1])
-  #expect(model.navigator.command?.id == "extension:page" && model.navigator.body == "# First page")
-  // Shown in one step with the height measured for it.
-  #expect(surface.changes.last == .measured(PageHeight(turn: turns[0], height: 300)))
-  #expect(surface.changes.dropLast().allSatisfy { $0 == .content })
-  #expect(model.navigator.pageTurn == turns[0])
-  #expect(try logged(root, "page").count == 1)
-  await model.finish()
-}
-
-@MainActor @Test func aPageThatCannotBeMeasuredShowsAtOnce() async throws {
-  let (model, _, root) = try await transitions()
-  defer { try? FileManager.default.removeItem(at: root) }
-  model.navigator.arrivalDeadline = .seconds(60)
-  let surface = RecordingSurface()
-  model.navigator.surface = surface
-  var prepared = 0
-  surface.onPrepare = { _, _ in
-    prepared += 1
-    return .unmeasured
-  }
-  model.navigator.go(Address(id: "page"), submitted: true)
-  #expect(await eventually { model.navigator.body == "# First page" })
-  // Measured once, not again until the deadline, and drawn as it is.
-  #expect(prepared == 1 && surface.changes.allSatisfy { $0 == .content })
-  await model.finish()
-}
-
-@MainActor @Test func pageToPageRendersTheIncomingPageWhileTheOutgoingOneShows() async throws {
-  let (model, _, root) = try await transitions()
-  defer { try? FileManager.default.removeItem(at: root) }
-  model.navigator.arrivalDeadline = .seconds(5)
-  var measured: [(page: String, shown: String?)] = []
-  let surface = RecordingSurface()
-  model.navigator.surface = surface
-  surface.onPrepare = { page, _ in
-    measured.append((page.source, model.navigator.body))
-    return .unmeasured
-  }
-  model.navigator.go(Address(id: "page"), submitted: true)
-  await model.navigator.settled()
-  model.navigator.go(Address(id: "other"), submitted: true)
-  await model.navigator.settled()
-  // The one renderer measures the second page while the first one is what the model shows.
-  #expect(measured.map(\.page) == ["# First page", "# Second page"])
-  #expect(measured.map(\.shown) == [nil, "# First page"])
-  #expect(model.navigator.body == "# Second page")
-  #expect(try logged(root, "page").count == 1 && logged(root, "other").count == 1)
   await model.finish()
 }
 
@@ -1037,8 +914,8 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
   }
 }
 
-/// The transitions' model in an offscreen panel whose renderer measures each page only once released.
-@MainActor private final class Measured {
+/// The transitions' model in an offscreen panel that records each frame.
+@MainActor private final class Framed {
   let model: LauncherModel
   let controller: PaletteController
   let panel = FramePanel()
@@ -1046,8 +923,6 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
   /// What the panel showed at each publish, with its frame then.
   private(set) var shown:
     [(screen: String, input: String, selection: String?, body: String?, busy: Bool, frame: NSRect)] = []
-  private var held: [CheckedContinuation<Void, Never>] = []
-  var measuring: Int { held.count }
   let surface: RecordingSurface
   init(answer: String = finished) async throws {
     let (model, _, root) = try await transitions(answer: answer)
@@ -1066,14 +941,6 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
           model.navigator.body, model.navigator.command?.busy == true, panel.frame
         ))
     }
-    surface.onPrepare = { [unowned self] page, turn in
-      await withCheckedContinuation { held.append($0) }
-      return await controller.prepare(page, turn: turn)
-    }
-  }
-  func release() {
-    for gate in held { gate.resume() }
-    held.removeAll()
   }
   func finish() async {
     controller.hide()
@@ -1083,16 +950,13 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
 }
 
 @MainActor @Test func aMeasuredPageArrivesWithItsHeightInOneFrame() async throws {
-  let panel = try await Measured()
+  let panel = try await Framed()
   let model = panel.model
   model.navigator.arrivalDeadline = .seconds(60)
   let rootFrame = panel.panel.frame
   model.navigator.go(Address(id: "page"), submitted: true)
-  #expect(await eventually { panel.measuring == 1 })
   #expect(model.navigator.command == nil && panel.panel.frame == rootFrame)
-  panel.release()
   #expect(await eventually { model.navigator.body == "# First page" })
-  await panel.controller.renderer.settled()
   let measured = PaletteLayout.panelHeight(
     card: PaletteLayout.cardHeight(
       model.navigator.presentation, answer: panel.controller.renderer.height,
@@ -1106,50 +970,6 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
   #expect(Set(frames.map(\.width)) == [rootFrame.width] && Set(frames.map(\.maxY)) == [rootFrame.maxY])
   #expect(frames.last?.height == measured)
   #expect(try logged(panel.root, "page").count == 1)
-  await panel.finish()
-}
-
-@MainActor @Test func theDeadlineShowsRunningThenTheMeasuredPage() async throws {
-  let panel = try await Measured()
-  let model = panel.model
-  model.navigator.arrivalDeadline = .seconds(60)
-  let rootFrame = panel.panel.frame
-  model.navigator.go(Address(id: "page"), submitted: true)
-  #expect(await eventually { panel.measuring == 1 })
-  #expect(model.navigator.command == nil)
-  model.navigator.passDeadline()
-  // The deadline: the command, busy, with its one row, at the list's height.
-  let running = PaletteLayout.panelHeight(card: PaletteLayout.rowsHeight(1) + PaletteLayout.footer)
-  #expect(panel.shown.last?.screen == "extension:page" && panel.shown.last?.busy == true)
-  #expect(panel.shown.last?.body == nil && panel.panel.frame.height == running)
-  panel.release()
-  #expect(await eventually { model.navigator.body == "# First page" })
-  await panel.controller.renderer.settled()
-  let measured = PaletteLayout.panelHeight(
-    card: PaletteLayout.cardHeight(
-      model.navigator.presentation, answer: panel.controller.renderer.height,
-      cap: panel.controller.renderer.cap))
-  #expect(panel.shown.map(\.screen) == ["root", "extension:page", "extension:page"])
-  #expect(panel.shown.map(\.frame.height) == [rootFrame.height, running, measured])
-  let frames = panel.panel.frames
-  #expect(Set(frames.map(\.width)) == [rootFrame.width] && Set(frames.map(\.maxY)) == [rootFrame.maxY])
-  #expect(try logged(panel.root, "page").count == 1)
-  await panel.finish()
-}
-
-@MainActor @Test func aMeasurementThatEndsAfterEscapeChangesNothing() async throws {
-  let panel = try await Measured()
-  let model = panel.model
-  model.navigator.arrivalDeadline = .seconds(60)
-  let rootFrame = panel.panel.frame
-  model.navigator.go(Address(id: "page"), submitted: true)
-  #expect(await eventually { panel.measuring == 1 })
-  #expect(model.navigator.escape())
-  let drawn = panel.shown.count
-  panel.release()
-  try await Task.sleep(for: .milliseconds(200))
-  #expect(model.navigator.command == nil && model.navigator.body == nil && panel.shown.count == drawn)
-  #expect(panel.panel.frame == rootFrame)
   await panel.finish()
 }
 
@@ -1293,79 +1113,6 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
   #expect(
     !model.navigator.inDetail && model.navigator.selection == nil
       && model.navigator.selected?.row.id == "submit")
-  await model.finish()
-}
-
-/// A page with a long body, targets and a detail inside a detail, shown in an offscreen panel.
-@MainActor private func scrolledPage() async throws -> (LauncherModel, PaletteController, URL) {
-  let root = try scratch()
-  let lines = (0..<60).map { "Line \($0)" }.joined(separator: "\n\n")
-  let view = ProviderView(
-    body:
-      "# Report\n\(lines)\n<row title=\"Notes\" copy=\"n\">\(lines)\n<row title=\"Deeper\" copy=\"d\">\(lines)</row></row>\n<row title=\"Owner\" copy=\"o\"/>"
-  )
-  let json = String(decoding: try JSONEncoder().encode(view), as: UTF8.self)
-  _ = try extensionFolder(root, name: "report", script: "cat >/dev/null\nprintf '%s' '\(json)'")
-  let model = LauncherModel.testing(in: root, bundled: nil)
-  await model.extensions.reload()
-  let controller = PaletteController(model: model, panel: RoutingPanel())
-  controller.show(orderFront: false, listen: false)
-  model.navigator.go(Address(id: "report"), submitted: true)
-  await model.navigator.settled()
-  await controller.renderer.settled()
-  return (model, controller, root)
-}
-
-/// The page's scroll position once the selection's paint, which scrolls a target into view, is done.
-@MainActor private func scrollY(_ controller: PaletteController) async throws -> Double {
-  await controller.renderer.settled()
-  var last = -1.0
-  while true {
-    try await Task.sleep(for: .milliseconds(100))
-    let y = try #require(
-      try await controller.renderer.page?.callJavaScript("return scrollY", contentWorld: .defaultClient)
-        as? Double)
-    if y == last { return y }
-    last = y
-  }
-}
-@MainActor private func scroll(_ controller: PaletteController, to y: Double) async throws {
-  _ = try await controller.renderer.page?.callJavaScript("scrollTo(0, \(y))", contentWorld: .defaultClient)
-}
-
-@MainActor @Test func theActionPanelAndNestedDetailsKeepThePagesScrollAndSelection() async throws {
-  let (model, controller, root) = try await scrolledPage()
-  defer { try? FileManager.default.removeItem(at: root) }
-  #expect(model.navigator.results.map(\.row.title) == ["Notes", "Owner"])
-  // The selected target is scrolled into view, then the page a little further.
-  model.navigator.move(1)
-  #expect(model.navigator.selectedTarget == "#0")
-  let page = try await scrollY(controller) + 40
-  try await scroll(controller, to: page)
-  #expect(try await scrollY(controller) == page)
-  // ⌘K and back: the page stays mounted where it was. Recorded as it is: unpainting the selected
-  // target under the panel moves the page by a few points, and Escape keeps that position.
-  model.navigator.toggleActions()
-  let under = try await scrollY(controller)
-  #expect(model.navigator.selectedTarget == nil && abs(under - page) <= 8)
-  #expect(model.navigator.escape())
-  #expect(try await scrollY(controller) == under && model.navigator.selectedTarget == "#0")
-  // A detail, a detail inside it, and back twice: each page where it was, with its target selected.
-  #expect(model.activateReturn())
-  #expect(try await scrollY(controller) == 0 && model.navigator.inDetail)
-  model.navigator.move(1)
-  #expect(model.navigator.selected?.row.title == "Deeper")
-  let detail = try await scrollY(controller) + 40
-  try await scroll(controller, to: detail)
-  #expect(model.activateReturn())
-  #expect(try await scrollY(controller) == 0)
-  #expect(model.navigator.escape())
-  #expect(try await scrollY(controller) == detail && model.navigator.selected?.row.title == "Deeper")
-  #expect(model.navigator.escape())
-  #expect(
-    try await scrollY(controller) == under && !model.navigator.inDetail
-      && model.navigator.selectedTarget == "#0")
-  controller.hide()
   await model.finish()
 }
 
@@ -1716,25 +1463,7 @@ func searchInputCollapsesRunsOfLineBreaks(_ text: String, _ expected: String) {
   model.navigator.go(Address(id: "page"), submitted: true)
   await model.navigator.settled()
   #expect(model.navigator.command?.id == "extension:page" && model.navigator.body == "# First page")
-  // A page on its way over the first one, and ⌘↩ with nothing typed while it is measured.
   model.navigator.arrivalDeadline = .seconds(60)
-  var measuring: CheckedContinuation<Void, Never>?
-  surface.onPrepare = { _, _ in
-    await withCheckedContinuation { measuring = $0 }
-    return .unmeasured
-  }
-  model.navigator.go(Address(id: "other"), submitted: true)
-  #expect(await eventually { measuring != nil })
-  model.navigator.askAgent()
-  #expect(
-    model.agent.active && model.navigator.returnsOnEscape && model.navigator.command?.id == "extension:page")
-  measuring?.resume()
-  await model.navigator.settled()
-  // The first command, exactly as it was under the question.
-  #expect(model.navigator.escape())
-  #expect(
-    model.navigator.command?.id == "extension:page" && model.navigator.body == "# First page"
-      && !model.agent.active)
   // The late answer of an entry called off this way shows nothing.
   model.navigator.go(Address(id: "slow"), submitted: true)
   #expect(await eventually { (try? logged(root).count) == 1 })
@@ -1744,7 +1473,7 @@ func searchInputCollapsesRunsOfLineBreaks(_ text: String, _ expected: String) {
   #expect(model.agent.active && model.navigator.returnsOnEscape)
   #expect(model.navigator.escape())
   #expect(model.navigator.command?.id == "extension:page" && model.navigator.body == "# First page")
-  #expect(try logged(root, "page").count == 1 && logged(root, "other").count == 1)
+  #expect(try logged(root, "page").count == 1)
   await model.finish()
 }
 
@@ -1895,7 +1624,7 @@ private let twoRows =
 private let listHeight = PaletteLayout.panelHeight(card: PaletteLayout.rowsHeight(2) + PaletteLayout.footer)
 
 @MainActor @Test func aRefreshedBackShowsTheConversationUntilTheCommandAnswersThenItsFirstRow() async throws {
-  let panel = try await Measured(answer: twoRows)
+  let panel = try await Framed(answer: twoRows)
   let model = panel.model
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
@@ -2006,7 +1735,7 @@ private let page = String(
   decoding: try! JSONEncoder().encode(ProviderView(body: "# Late page")), as: UTF8.self)
 
 @MainActor @Test func theDeadlineThenTheAnswerShowsRunningThenThePageRenderedWhereItShows() async throws {
-  let panel = try await Measured(answer: page)
+  let panel = try await Framed(answer: page)
   let model = panel.model
   model.navigator.arrivalDeadline = .seconds(60)
   let rootFrame = panel.panel.frame
@@ -2017,9 +1746,6 @@ private let page = String(
   #expect(model.navigator.command?.busy == true && panel.panel.frame.height == running)
   try release(panel.root)
   #expect(await eventually { model.navigator.body == "# Late page" })
-  await panel.controller.renderer.settled()
-  // Shown already, the page is rendered where it shows rather than measured first.
-  #expect(panel.measuring == 0)
   let measured = PaletteLayout.panelHeight(
     card: PaletteLayout.cardHeight(
       model.navigator.presentation, answer: panel.controller.renderer.height,
@@ -2033,14 +1759,12 @@ private let page = String(
   await panel.finish()
 }
 
-@MainActor @Test func theAnswerAndItsMeasurementBeforeTheDeadlineLeaveTheDeadlineNothingToDo() async throws {
-  let panel = try await Measured(answer: page)
+@MainActor @Test func anAnswerBeforeTheDeadlineLeavesTheDeadlineNothingToDo() async throws {
+  let panel = try await Framed(answer: page)
   let model = panel.model
   model.navigator.arrivalDeadline = .seconds(60)
   try release(panel.root)
   model.navigator.go(Address(id: "slow"), submitted: true)
-  #expect(await eventually { panel.measuring == 1 })
-  panel.release()
   #expect(await eventually { model.navigator.body == "# Late page" })
   let drawn = panel.shown.count
   let frames = panel.panel.frames
@@ -2050,25 +1774,19 @@ private let page = String(
   await panel.finish()
 }
 
-@MainActor @Test func pageToPageKeepsTheOutgoingPageAndFrameUntilTheIncomingOneIsMeasured() async throws {
-  let panel = try await Measured()
+@MainActor @Test func pageToPageKeepsTheOutgoingFrameUntilTheIncomingPageArrives() async throws {
+  let panel = try await Framed()
   let model = panel.model
   model.navigator.arrivalDeadline = .seconds(60)
   model.navigator.go(Address(id: "page"), submitted: true)
-  #expect(await eventually { panel.measuring == 1 })
-  panel.release()
   #expect(await eventually { model.navigator.body == "# First page" })
-  await panel.controller.renderer.settled()
   let first = panel.panel.frame
   let drawn = panel.shown.count
   let frames = panel.panel.frames.count
   model.navigator.go(Address(id: "other"), submitted: true)
-  #expect(await eventually { panel.measuring == 1 })
   #expect(model.navigator.command?.id == "extension:page" && model.navigator.body == "# First page")
   #expect(panel.panel.frame == first && panel.panel.frames.count == frames)
-  panel.release()
   #expect(await eventually { model.navigator.body == "# Second page" })
-  await panel.controller.renderer.settled()
   #expect(panel.shown.dropFirst(drawn).map(\.screen).last == "extension:other")
   #expect(panel.shown.allSatisfy { !$0.busy })
   // Both one-line pages measure the same, so the frame never moves.
@@ -2078,7 +1796,7 @@ private let page = String(
 }
 
 @MainActor @Test func pageToPageOfAnotherHeightResizesOnlyWhenTheIncomingPageShows() async throws {
-  let panel = try await Measured()
+  let panel = try await Framed()
   let model = panel.model
   let tall = (1...12).map { "Paragraph \($0) of a page taller than one line." }.joined(separator: "\n\n")
   let view = String(decoding: try JSONEncoder().encode(ProviderView(body: tall)), as: UTF8.self)
@@ -2087,17 +1805,11 @@ private let page = String(
   model.navigator.arrivalDeadline = .seconds(60)
   panel.panel.shows = { model.navigator.command?.id ?? "root" }
   model.navigator.go(Address(id: "page"), submitted: true)
-  #expect(await eventually { panel.measuring == 1 })
-  panel.release()
   #expect(await eventually { model.navigator.body == "# First page" })
-  await panel.controller.renderer.settled()
   let first = panel.panel.frame
   let frames = panel.panel.frames.count
   model.navigator.go(Address(id: "tall"), submitted: true)
-  #expect(await eventually { panel.measuring == 1 })
-  panel.release()
   #expect(await eventually { model.navigator.command?.id == "extension:tall" })
-  await panel.controller.renderer.settled()
   let measured = PaletteLayout.panelHeight(
     card: PaletteLayout.cardHeight(
       model.navigator.presentation, answer: panel.controller.renderer.height,
@@ -2109,34 +1821,6 @@ private let page = String(
   #expect(panel.panel.frames.dropFirst(frames).map(\.height) == [measured])
   #expect(panel.shown.last?.screen == "extension:tall" && panel.shown.last?.frame.height == measured)
   await panel.finish()
-}
-
-@MainActor @Test func aMeasurementEndingAfterAReplacementOrHidingChangesNothing() async throws {
-  for replaced in [true, false] {
-    let panel = try await Measured()
-    let model = panel.model
-    model.navigator.arrivalDeadline = .seconds(60)
-    model.navigator.go(Address(id: "page"), submitted: true)
-    #expect(await eventually { panel.measuring == 1 })
-    if replaced {
-      model.navigator.go(Address(id: "notes"), submitted: true)
-      #expect(model.navigator.command?.id == "extension:notes")
-    } else {
-      panel.controller.hide()
-    }
-    // Hiding composes the empty root; the measurement is still held.
-    await model.root.settled()
-    let turn = model.navigator.pageTurn
-    let drawn = panel.shown.count
-    let frame = panel.panel.frame
-    panel.release()
-    try await Task.sleep(for: .milliseconds(100))
-    #expect(
-      model.navigator.command?.id == (replaced ? "extension:notes" : nil) && model.navigator.body == nil)
-    #expect(model.navigator.pageTurn == turn && panel.shown.count == drawn && panel.panel.frame == frame)
-    #expect(try logged(panel.root, "page").count == 1)
-    await panel.finish()
-  }
 }
 
 /// Answers once `release` exists, then marks that it printed, so a test can hold the main actor until
@@ -2265,40 +1949,4 @@ private func printing(_ answer: String) -> String {
   await model.finish()
   #expect(!model.agent.active && !model.navigator.inDetail && model.navigator.page == nil)
   #expect(!drawn.isEmpty && drawn.allSatisfy { !$0 })
-}
-
-@MainActor @Test func aMeasurementSupersededInFlightNeverResizesThePageShown() async throws {
-  let folder = try scratch()
-  defer { try? FileManager.default.removeItem(at: folder) }
-  let renderer = AnswerRenderer(folder: folder) { _ in }
-  defer { renderer.release() }
-  let short = Page(body: "One line.", runs: false)
-  let tall = Page(
-    body: (1...12).map { "Paragraph \($0) of a page taller than one line." }.joined(separator: "\n\n"),
-    runs: false)
-  renderer.opened()
-  renderer.update(short, turn: "shown", streaming: false)
-  await renderer.settled()
-  let height = renderer.height
-  var published: [Double] = []
-  renderer.onHeight = { published.append(renderer.height) }
-  // A redraw of the page shown (an appearance or text-size change) lands while the incoming tall page is
-  // rendered to be measured, at several points of that render; a warm render takes about a millisecond.
-  var superseded = 0
-  for steps in 1...6 {
-    let turn = "incoming \(steps)"
-    let measuring = Task { await renderer.measure(tall, turn: turn) }
-    for _ in 0..<steps { await Task.yield() }
-    renderer.update(short, turn: "shown", streaming: false)
-    let result = await measuring.value
-    if result == .superseded {
-      superseded += 1
-    } else if case .measured(let page) = result {
-      #expect(page.turn == turn && page.height > height)
-    }
-    await renderer.settled()
-    #expect(renderer.height == height && renderer.renderedTurn == "shown")
-  }
-  #expect(superseded > 0)
-  #expect(published.allSatisfy { $0 == height }, "\(published)")
 }

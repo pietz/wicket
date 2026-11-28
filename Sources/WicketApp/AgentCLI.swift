@@ -45,7 +45,7 @@ enum AgentCLI {
   /// What the agent is told once per conversation, as system or developer instructions: the bundled
   /// `agent-instructions.md` with its placeholders filled in, then the owner's `instructions.md`
   /// if it has any text. The canvas is described as the user sees it: the answer card's width, the
-  /// answer area's cap and the page's 14-point body (answers.css) zoomed by the text size.
+  /// answer area's cap and the page's body size after text-size scaling.
   static func instructions(
     in folder: URL, textSize: Configuration.TextSize = .medium,
     environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -62,9 +62,9 @@ enum AgentCLI {
       "{{config}}": folder.appending(path: "config.json").path,
       "{{contract}}": folder.appending(path: "extension-contract.md").path,
       "{{extensions}}": folder.appending(path: "extensions").path,
-      "{{width}}": "\(Int(PaletteLayout.width - 2 * PaletteLayout.margin))",
+      "{{width}}": "\(Int(PaletteLayout.pageWidth))",
       "{{height}}": "\(Int(PaletteLayout.answerMax))",
-      "{{fontSize}}": "\(Int((14 * textSize.scale).rounded()))",
+      "{{fontSize}}": "\(Int((PageMetrics.bodySize * textSize.scale).rounded()))",
     ] {
       base = base.replacingOccurrences(of: key, with: value)
     }

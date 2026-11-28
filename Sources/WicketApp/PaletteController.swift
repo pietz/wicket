@@ -43,7 +43,9 @@ class PalettePanel: NSPanel {
     // The first key after summon must find the field even before SwiftUI finishes its update.
     let flagsOnly = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
     let permissionPending = target?.permissionPending == true
-    if !permissionPending, !(firstResponder is NSTextView), !(firstResponder is NSTextField),
+    // A page's read-only text keeps a selection, not typing.
+    let editing = (firstResponder as? NSTextView)?.isEditable == true || firstResponder is NSTextField
+    if !permissionPending, !editing,
       flagsOnly.isDisjoint(with: [.command, .control]),
       ![48, 53, 36, 76, 125, 126].contains(Int(event.keyCode)),
       let field
@@ -84,7 +86,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   private(set) var presentation: PalettePresentation
   let model: LauncherModel
   let navigator: Navigator
-  let renderer: AnswerRenderer
+  let renderer: NativePageRenderer
   /// What the panel types and says into the screens, and its voice.
   let input: PanelInput
   /// Records a row's hotkey: Set Hotkey… makes the next shortcut pressed its hotkey, under the
@@ -129,8 +131,12 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     self.navigator = navigator
     presentation = navigator.presentation
     // A `wicket://` link in a page is an address; any other goes to the system.
-    renderer = AnswerRenderer(folder: model.agent.folder) { [weak navigator] url in
-      if let address = Address(url: url) { navigator?.go(address) } else { NSWorkspace.shared.open(url) }
+    renderer = NativePageRenderer { [weak navigator] url in
+      if let scheme = url.scheme?.lowercased(), Address.schemes.contains(scheme) {
+        if let address = Address(url: url) { navigator?.go(address) }
+      } else {
+        NSWorkspace.shared.open(url)
+      }
     }
     input = PanelInput(
       navigator: navigator, agent: model.agent, store: model.store,
@@ -148,7 +154,6 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       rootView: LauncherView(panel: self, drawsGlass: drawsGlass, frozenLightElapsed: frozenLightElapsed))
     root.sizingOptions = []
     panel.contentView = root
-    renderer.onHeight = { [weak self] in self?.resize() }
     model.extensions.onIconChange = { [weak self] in
       guard let self, isOpen else { return }
       renderer.refreshExtensionIcons()
@@ -195,8 +200,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     let cardChanged = self.presentation.showsCard != presentation.showsCard
     if self.presentation != presentation { self.presentation = presentation }
     switch change {
-    case .content, .measured:
-      if case .measured(let height) = change { renderer.adopt(height) }
+    case .content:
       input.screensChanged()
       if isOpen { renderContent() }
       resize()
@@ -205,24 +209,17 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       // Beside a list, the selected item's detail, with its neighbors' pictures prepared.
       if isOpen, presentation.splits {
         renderContent()
-        PageIcons.prepare(presentation.nearbyPictures)
       }
       if cardChanged { resize() }
     }
   }
-  /// A footer update can arrive without a screen change, even while the next page is being measured.
+  /// A footer update can arrive without a screen change.
   private func updateFooter(_ problem: String?, voice: String?) {
     guard isOpen, problem != presentation.footerProblem || voice != presentation.voiceStatus else { return }
     var updated = presentation
     updated.footerProblem = problem
     updated.voiceStatus = voice
     presentation = updated
-  }
-  func prepare(_ page: Page, turn: String) async -> PageMeasurement {
-    guard isOpen else { return .unmeasured }
-    renderer.textSize = model.configuration.textSize
-    renderer.selected = nil
-    return await renderer.measure(page, turn: turn)
   }
   var isShown: Bool { isOpen }
   @discardableResult func perform(_ effect: PaletteEffect) -> Bool {
@@ -277,7 +274,6 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       x: (visible.midX - PaletteLayout.width / 2).rounded(),
       y: (visible.maxY - visible.height * 0.2 + PaletteLayout.margin).rounded())
     model.reopen()
-    renderer.opened()
     renderer.cap = PaletteLayout.answerCap(available: anchor.y - visible.minY)
     isOpen = true
     arriving?()
@@ -312,7 +308,6 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     recorder.stop()
     model.store.rejection = nil
     navigator.dismiss()
-    renderer.closed()
   }
   private func resize() {
     guard panel.isVisible || anchor != .zero else { return }
@@ -326,18 +321,29 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   /// The page that is open: a detail, the conversation's answer or an extension's body, or beside a list
   /// the selected item's detail. Another list has none, and the renderer is not touched.
   private func renderContent() {
+    let appearance = panel.effectiveAppearance
+    let textSize = model.configuration.textSize
     if let preview = presentation.preview {
-      renderer.textSize = model.configuration.textSize
       renderer.selected = nil
-      return renderer.update(preview.page, turn: preview.turn, streaming: false)
+      renderer.update(
+        preview.page, turn: preview.turn, width: PaletteLayout.splitDetail,
+        textSize: textSize, appearance: appearance)
+      for url in presentation.nearbyPictures { _ = PagePictures.thumbnail(url) }
+    } else if let page = presentation.page {
+      renderer.selected = presentation.selectedTarget
+      renderer.update(
+        page, turn: presentation.pageTurn,
+        streaming: !presentation.inDetail && presentation.agent.map { $0.busy && $0.streaming } == true,
+        textSize: textSize, appearance: appearance)
     }
-    guard let page = presentation.page else { return }
-    renderer.textSize = model.configuration.textSize
-    renderer.selected = presentation.selectedTarget
-    renderer.update(
-      page, turn: presentation.pageTurn,
-      streaming: !presentation.inDetail && presentation.agent.map { $0.busy && $0.streaming } == true)
   }
+
+  func appearanceChanged() {
+    guard isOpen else { return }
+    renderContent()
+    resize()
+  }
+
   /// A `wicket://` URL from outside (`Navigator.open`).
   func open(_ url: URL) {
     if let address = Address(url: url) { navigator.open(address) }

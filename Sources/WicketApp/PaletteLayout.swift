@@ -9,8 +9,12 @@ enum PaletteLayout {
   static func rowsHeight(_ count: Int, prominentFirst: Bool = false, rowHeight: Double = 40) -> CGFloat {
     CGFloat(max(1, min(count, 8))) * (rowHeight + 2) - 2 + 20 + (prominentFirst ? 20 : 0)
   }
-  /// The list's width when the selected item's detail stands beside it.
+  /// The card's inner width, where pages lay out.
+  static let pageWidth: CGFloat = width - 2 * margin
+  /// The list's width when the selected item's detail stands beside it, and the detail's after the
+  /// divider between them.
   static let splitList: CGFloat = 260
+  static let splitDetail: CGFloat = pageWidth - splitList - 1
   static let search: CGFloat = 56, gap: CGFloat = 8, header: CGFloat = 40, footer: CGFloat = 35
   static let error: CGFloat = 220, permission: CGFloat = 114
   static let answerMin: Double = 80, answerMax: Double = 500

@@ -7,7 +7,7 @@ import Observation
 /// (`arrive`), stages the open command's requests and hands each visit what they were answered with
 /// (what a request takes and answers is the command's behavior, `CommandScreenBehavior`), routes the
 /// selection the keys move and decides what Return, Escape and the arrows do. It reaches
-/// the panel only through `PaletteSurface`: drawing, measuring a page, and effects on the system, which
+/// the panel only through `PaletteSurface`: drawing and effects on the system, which
 /// are the panel's, as are dictation (`PanelInput`) and recording a hotkey. Applying a configuration is
 /// the services' (`LauncherModel`), and the agent's process, turns and permissions are `AgentSession`'s.
 @MainActor @Observable
@@ -165,7 +165,7 @@ final class Navigator {
   var pageTurn: String { openDetails.last?.turn ?? baseTurn }
   /// A command's list whose items carry a `detail` shows the selected one's beside it (`preview`). Not at
   /// the root, in a conversation, on a page or under the action panel. Keep split previews out of root
-  /// search so ordinary keystrokes never have to render WebKit content.
+  /// search so ordinary keystrokes only lay out the list.
   var splits: Bool {
     !conversing && command != nil && page == nil && overlay == nil
       && listed.contains { $0.row.detail != nil }
@@ -227,9 +227,8 @@ final class Navigator {
 
   /// The panel the screens show in (`PaletteSurface`).
   @ObservationIgnored weak var surface: (any PaletteSurface)?
-  /// `measured`: the page shown now was measured before it showed, at this height.
-  private func draw(_ measured: PageHeight? = nil) {
-    surface?.present(measured.map { .measured($0) } ?? .content, presentation)
+  private func draw() {
+    surface?.present(.content, presentation)
   }
 
   // MARK: Layers: details and the action panel
@@ -346,15 +345,17 @@ final class Navigator {
   }
   private func resetSelection() { screen.startSelectionOver(over: baseTurn) }
   /// The one step after a screen's content changed: the selection follows it, then the panel draws it.
-  private func publish(_ measured: PageHeight? = nil) {
+  private func publish() {
     retainSelection()
-    draw(measured)
+    draw()
   }
   private func retainSelection() {
     guard overlay == nil else { return }
     var selection = current
+    let opensWithPreview = splits && input.isEmpty
     selection.follow(
-      results.map(\.id), waits: itemsWait, onPage: page != nil, pending: !search.pending.isEmpty)
+      results.map(\.id), waits: itemsWait && !opensWithPreview, onPage: page != nil,
+      pending: !search.pending.isEmpty)
     current = selection
   }
   /// Back on a screen or page as the user left it: its own selection, kept unless its rows changed meanwhile.
@@ -723,7 +724,7 @@ final class Navigator {
   @ObservationIgnored private var tasks: [Task<Void, Never>] = []
   /// The busy state (Running…, the spinner) shows only once a request's process has run this long, so a
   /// quick answer replaces the screen without it flashing first, whether Return, a link or a hotkey asked.
-  /// Neither the wait for dictation to settle nor measuring the answer's page counts.
+  /// Waiting for dictation to settle does not count.
   var busyDelay: Duration = .milliseconds(400)
   @ObservationIgnored private var busyTimer: Task<Void, Never>?
   @ObservationIgnored private var ranLong = false
@@ -887,20 +888,10 @@ final class Navigator {
             if advanceCanvasWork(after: problem) { return }
           }
           var page: Page?
-          var measured: PageHeight?
           if case .view(let view) = outcome {
             page = target?.makePage(view)
           }
-          // Measured for this page's turn: one the renderer measured meanwhile, such as a list's detail
-          // on an arrow key, says nothing about this one's height. What failed shows unmeasured at once.
-          while arriving != nil, let page, let surface {
-            let measurement = await surface.prepare(page, turn: turn)
-            guard current() else { return }
-            if measurement == .superseded { continue }
-            if case .measured(let height) = measurement, height.turn == turn { measured = height }
-            break
-          }
-          accept(outcome, for: request, page: page, turn: turn, remembered: remembered, measured: measured)
+          accept(outcome, for: request, page: page, turn: turn, remembered: remembered)
         })
       draw()
     }
@@ -920,7 +911,7 @@ final class Navigator {
   /// if it was on its way, or a saved run opened as a conversation.
   private func accept(
     _ outcome: CommandOutcome, for request: CommandScreenRequest, page: Page?, turn: String,
-    remembered: Bool, measured: PageHeight? = nil
+    remembered: Bool
   ) {
     switch outcome {
     case .view(let view):
@@ -941,7 +932,7 @@ final class Navigator {
       return
     }
     sizeList()
-    publish(measured)
+    publish()
     replayReturn()
   }
   /// Waits until no work is left, including work a refresh started while this was waiting.

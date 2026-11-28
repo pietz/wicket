@@ -121,9 +121,6 @@ func weatherForecastRendersTilesAndUpcomingLocalHours(_ fahrenheit: Bool) async 
   #expect(body.contains(#"<tile label="Tue" icon="cloud.sun" title="↑15° ↓8°"/>"#))
   #expect(body.hasSuffix("</columns>"))
   #expect(!body.contains("23:00"))
-  let html = AnswerMarkdown.html(body)
-  #expect(html.contains("<w-columns") && html.contains("<w-tile"))
-  #expect(!html.contains("<w-rows"))
   #expect(result.actions.first?.label == "Copy forecast")
   #expect(
     result.actions.last == .open(URL(string: "https://open-meteo.com/")!, title: "Weather data by Open-Meteo")
@@ -231,9 +228,10 @@ func openingWeatherShowsTheDefaultForecastWithAnEmptyCity(_ hotkey: Bool) async 
     {"results":[{"name":"**Town**\n<row title='hi' copy='test'/>","latitude":52.52,"longitude":13.41}]}
     """#
   let result = try await view("Berlin", submitted: true, fetch: weatherFixture(place: place))
-  let html = AnswerMarkdown.html(try #require(result.body))
-  #expect(html.contains("**Town**") && html.contains("&lt;row"))
-  #expect(!html.contains("<strong>Town</strong>") && !html.contains("data-copy"))
+  let page = Page(body: try #require(result.body), runs: true)
+  #expect(page.targets.isEmpty)
+  let text = PageDocument(page, turn: "t", streaming: false).blocks.map(\.renderedText).joined()
+  #expect(text.contains("**Town**") && text.contains("<row"))
 }
 
 @Test func weatherRootFetchesImmediatelyAndOffersTheForecast() async throws {

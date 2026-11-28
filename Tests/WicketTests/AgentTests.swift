@@ -960,22 +960,22 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   // Once it speaks, the longer limit applies. The startup limit is generous from here on, so a loaded
   // machine's late first event is not mistaken for silence.
   session.startupLimit = .seconds(30)
-  session.turnLimit = .milliseconds(500)
+  session.turnLimit = .seconds(1)
   let slow = FakeAgent()
   session.connect = { _, _, _ in slow }
   session.ask("Hello", settings: .init())
   #expect(await eventually { slow.running })
-  // A turn that keeps reporting runs for twice the limit: only silence ends it. Reports come ten times
+  // A turn that keeps reporting runs for twice the limit: only silence ends it. Reports come twenty times
   // as often as the limit, so a late wakeup is not silence either.
   let reporting = ContinuousClock.now
-  while ContinuousClock.now - reporting < .seconds(1) {
+  while ContinuousClock.now - reporting < .seconds(2) {
     slow.tool("Working")
     try await Task.sleep(for: .milliseconds(50))
   }
   #expect(session.busy && session.problem == nil)
   // So does one whose messages show nothing, such as a long build's output.
   let printing = ContinuousClock.now
-  while ContinuousClock.now - printing < .seconds(1) {
+  while ContinuousClock.now - printing < .seconds(2) {
     slow.onEvent(.activity)
     try await Task.sleep(for: .milliseconds(50))
   }
@@ -995,7 +995,7 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   endless.ask(9)
   // A parallel tool's update while the permission waits does not start the limit again.
   endless.tool("Still working")
-  try await Task.sleep(for: .seconds(1))
+  try await Task.sleep(for: .seconds(2))
   #expect(session.busy && session.problem == nil && session.permissions.count == 1)
   // Answered, the limit runs again: a turn that goes silent expires and loses its process.
   session.decide(true)

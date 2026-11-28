@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 import Testing
 import Vision
-import WebKit
 
 @testable import WicketApp
 
@@ -21,8 +20,8 @@ import WebKit
 // does not render offscreen. The captures prove layout and foreground, not glass, focus or shadows. Each
 // capture is read back with text recognition and must show the content its state promises.
 // Without the variable the capture test is skipped and `scenariosSetUpTheirState` still checks
-// the setup of every state without drawing anything. Text recognition has hung once inside
-// `VNImageRequestHandler.perform`; if a run stops making progress, kill it and rerun.
+// the setup of every state without drawing anything. Capture cases run in order to keep just one
+// pair of panels and one Vision request in flight.
 
 private let captureDirectory = ProcessInfo.processInfo.environment["WICKET_CAPTURE_DIR"]
 private let captureStates = ProcessInfo.processInfo.environment["WICKET_CAPTURE_STATES"]?
@@ -32,8 +31,9 @@ private let states =
   [
     "empty", "apps", "actions", "math", "ask", "answer", "listening",
     "conversation-multi", "conversation-reopen", "conversation-long", "conversation-long-expanded",
-    "working", "working-text", "permission-routine", "permission-high",
-    "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
+    "working", "working-text", "streaming-long", "canvas-fields", "permission-routine", "permission-high",
+    "answer-opaque", "answer-clear", "answer-small", "answer-large", "answer-larger", "apps-larger",
+    "permission-routine-larger",
     "extension-pattern", "extension-list", "extension-quicklinks-empty", "extension-detail", "extension-both",
     "extension-image-icons", "extension-quicklinks-icons",
     "weather-keyword", "weather-root", "weather-page", "weather-default", "convert-cached-rate",
@@ -164,6 +164,8 @@ private func expectedText(_ name: String) -> [String] {
     return ["What should I build next", "Build something useful", "Cancel"]
   }
   if name.contains("working") { return ["What should I build next", "Cancel"] }
+  if name == "streaming-long" { return ["Next steps", "swift build", "Cancel"] }
+  if name == "canvas-fields" { return ["Display", "Brightness", "Night Shift", "Appearance", "Scale"] }
   if name.contains("listening") { return ["rainbows", "Ask agent", "Listening", "Ask", "Close"] }
   if name.contains("asking-extension") {
     return ["Ask about Extension report", "Claude will see what Extension report shows", "Ask", "Esc Back"]
@@ -217,7 +219,7 @@ private let transitionText = [
   "extension-nested-detail": ["Known issues", "Two open problems remain", "Esc Back"],
   "extension-copy-actions": ["Actions for Known issues", "Copy", "Show details", "esc Back"],
   "extension-actions-back": ["Weekly report", "Release notes", "Owner"],
-  "answer-actions-back": ["A good start", "Ask a follow-up", "Open", "End conversation"],
+  "answer-actions-back": ["Ask a follow-up", "Swift Testing", "Open", "End conversation"],
   "asking-running-command": ["Ask about Slow list", "Esc Back"],
   "asking-running-back": ["Slow list", "Running"],
   "history-back": ["Agent History", "How is the launch going", "What should I build next"],
@@ -228,6 +230,13 @@ private let transitionText = [
 
 private let launchAnswer =
   "# A good start\nTwelve extensions, all local\n<columns><tile label=\"Extensions\" icon=\"puzzlepiece.extension\" title=\"12\" subtitle=\"3 new this week\"/><tile label=\"Response\" icon=\"bolt\" title=\"42 ms\"/></columns>\n<card icon=\"exclamationmark.triangle\">\n## Restart once\nAfter updating, quit and reopen Wicket.\n</card>\n<row label=\"Owner\" value=\"You\"/>\n<row label=\"Next\" value=\"Build something useful\"/>\n<progress label=\"Disk used\" value=\"420 of 600 GB\" percent=\"70\"/>\n<row label=\"14:30\" title=\"Train departs\" subtitle=\"Platform 6\"/>\n<row label=\"16:05\" title=\"Arrives in Berlin\"/>\n<badge label=\"Healthy\" tone=\"positive\"/> <badge label=\"v2.4\"/>\n<row title=\"Swift Testing\" subtitle=\"Apple guide\" open=\"https://developer.apple.com/documentation/testing\"/>\n<row title=\"Copy the summary\" copy=\"A good start\"/>\n<row title=\"How do I add an extension?\" ask=\"How do I add an extension?\"/>"
+private let streamingAnswer =
+  launchAnswer
+  + "\n\n## Next steps\n"
+  + (1...6).map {
+    "Step \($0) keeps the change small, checks it on a real Mac, and writes down what it learned."
+  }
+  .joined(separator: "\n\n") + "\n\n```sh\nswift build\nswift test --filter"
 private let nextAnswer =
   "## Build something useful\nStart with a small weather extension. Put the current temperature in its result row, with the full forecast one step away.\n\nKeep it **local**, quick and easy to change."
 
@@ -366,7 +375,6 @@ private let installedAgent: Void = {
     _ = NSApplication.shared
     let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
     let folder = try name.map(captureFolder) ?? scratch()
-    try AnswerRenderer.installFiles(in: folder)
     if state.hasPrefix("settings-") {
       return try await settings(state, folder: folder, appearance: appearance)
     }
@@ -388,7 +396,9 @@ private let installedAgent: Void = {
     model.store.update {
       $0.voice.listenOnOpen = name == "listening" || name == "arrival-dictated"
       $0.textSize = size
-      $0.agent.streamAnswers = name == "working-text" || name == "chart-pending"
+      $0.agent.streamAnswers = ["working-text", "chart-pending", "streaming-long"].contains(name)
+      if name == "answer-opaque" { $0.transparency = 0 }
+      if name == "answer-clear" { $0.transparency = 1 }
     }
     let panel = CapturePanel()
     panel.appearance = appearance
@@ -509,6 +519,62 @@ private let installedAgent: Void = {
       if name == "conversation-long-expanded" { model.navigator.toggleQuestion() }
     case "chart-nested":
       try await configureExtension(name, model)
+    case "streaming-long":
+      // Mount the page as the reply arrives, as it would be during a real turn.
+      controller.show(orderFront: false, listen: false)
+      let agent = FakeAgent()
+      scenario.keep.append(agent)
+      model.agent.connect = { _, _, _ in agent }
+      model.navigator.send("How is the launch going?")
+      #expect(await eventually { agent.running })
+      // In pieces, as a reply arrives, each drawn before the next.
+      var sent = ""
+      for piece in streamingAnswer.split(separator: "\n", omittingEmptySubsequences: false) {
+        let delta = (sent.isEmpty ? "" : "\n") + piece
+        sent += delta
+        agent.text(delta)
+        #expect(await eventually { model.agent.answer == sent })
+        scenario.view.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(50))
+      }
+      return scenario
+    case "canvas-fields":
+      let view = ProviderView(
+        body: """
+          ## Display
+          Changes apply as you make them.
+          <field name="brightness"/>
+          <field name="nightShift"/>
+          <field name="appearance"/>
+          <field name="scale"/>
+          <row title="Open Displays Settings" icon="display" open="https://apple.com"/>
+          """,
+        fields: [
+          .init(
+            name: "brightness", type: .number, description: "Brightness", min: 0, max: 100, step: 5,
+            value: "70"),
+          .init(name: "nightShift", type: .bool, description: "Night Shift", value: "true"),
+          .init(
+            name: "appearance", type: .choice, description: "Appearance",
+            options: [
+              .init("light", label: "Light"), .init("dark", label: "Dark"), .init("auto", label: "Auto"),
+            ],
+            value: "auto"),
+          .init(
+            name: "scale", type: .choice, description: "Scale",
+            options: ["Default", "More Space", "Larger Text", "Largest", "Smallest", "Custom"].map {
+              .init($0)
+            }),
+        ])
+      _ = try extensionFolder(
+        folder, name: "display",
+        script:
+          "cat >/dev/null\nprintf '%s' '\(String(decoding: try JSONEncoder().encode(view), as: UTF8.self))'",
+        fields: ["name": "Display", "fields": []])
+      await model.extensions.reload()
+      model.navigator.go(Address(id: "display"))
+      await model.navigator.settled()
+      model.navigator.move(1)
     case "chart-pending":
       let fixture = try #require(ChartFixture.all[state])
       let agent = FakeAgent()
@@ -634,7 +700,6 @@ private let installedAgent: Void = {
       "extension-actions-back":
       model.navigator.go(Address(id: "report"), submitted: true)
       await model.navigator.settled()
-      await controller.renderer.settled()
       switch name {
       case "extension-actions": model.navigator.toggleActions()
       case "extension-nested-detail", "extension-copy-actions":
@@ -1109,43 +1174,13 @@ private let installedAgent: Void = {
   }
 }
 
-@MainActor private func webViews(in view: NSView) -> [WKWebView] {
-  (view as? WKWebView).map { [$0] } ?? view.subviews.flatMap { webViews(in: $0) }
-}
-
-/// Draws the view offscreen. Web views are drawn from their own snapshots: the composited layer of a
-/// web view in a window that is never shown sometimes stays blank however long one waits (whole
-/// batches of pages did, now and then), while a snapshot is rendered by WebKit itself.
-/// Web views are hidden for the first draw: a page that did paint would otherwise be drawn twice,
-/// doubling every translucent color.
-@MainActor private func render(_ view: NSView, to url: URL) async throws {
+/// Draws the view offscreen using the same native hierarchy as the panel.
+@MainActor private func render(_ view: NSView, to url: URL) throws {
   view.layoutSubtreeIfNeeded()
   guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
     throw ExtensionFailure("No render target")
   }
-  // SwiftUI's opacity, as under the action panel, is an ancestor's alpha, which a snapshot ignores.
-  func transparent(_ view: NSView?) -> Bool {
-    view.map { $0.alphaValue == 0 || transparent($0.superview) } ?? false
-  }
-  let shown = webViews(in: view).filter {
-    !$0.isHiddenOrHasHiddenAncestor && !$0.visibleRect.isEmpty && !transparent($0)
-  }
-  for web in shown { web.isHidden = true }
   view.cacheDisplay(in: view.bounds, to: bitmap)
-  for web in shown { web.isHidden = false }
-  for web in shown {
-    // Only the part a scroll region shows.
-    let configuration = WKSnapshotConfiguration()
-    configuration.rect = web.visibleRect
-    let image = try await web.takeSnapshot(configuration: configuration)
-    var frame = web.convert(web.visibleRect, to: view)
-    // The bitmap's context is never flipped.
-    if view.isFlipped { frame.origin.y = view.bounds.height - frame.maxY }
-    NSGraphicsContext.saveGraphicsState()
-    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-    image.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1)
-    NSGraphicsContext.restoreGraphicsState()
-  }
   guard let data = bitmap.representation(using: .png, properties: [:]) else {
     throw ExtensionFailure("Could not encode the render as PNG")
   }
@@ -1154,9 +1189,7 @@ private let installedAgent: Void = {
 
 /// The capture is read over a mid grey, a neutral desktop behind the glass: its backing is translucent, and
 /// text recognition missed short words over pure black or white.
-private func recognizedText(in url: URL) throws -> String {
-  let request = VNRecognizeTextRequest()
-  request.recognitionLevel = .accurate
+private func recognizedText(in url: URL, expecting expected: [String]) async throws -> String {
   guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
     let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
     let context = CGContext(
@@ -1168,44 +1201,53 @@ private func recognizedText(in url: URL) throws -> String {
   context.fill(rect)
   context.draw(image, in: rect)
   guard let flat = context.makeImage() else { throw ExtensionFailure("Unreadable capture") }
-  try VNImageRequestHandler(cgImage: flat).perform([request])
-  return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+  var results: [String] = []
+  for level in [RecognizeTextRequest.RecognitionLevel.accurate, .fast] {
+    var request = RecognizeTextRequest()
+    request.recognitionLevel = level
+    // Full capture runs have stalled in Vision's accelerated recognizer.
+    for (stage, devices) in request.supportedComputeStageDevices {
+      if let cpu = devices.first(where: { if case .cpu = $0 { true } else { false } }) {
+        request.setComputeDevice(cpu, for: stage)
+      }
+    }
+    let text = try await request.perform(on: flat)
+    results += text.compactMap { $0.topCandidates(1).first?.string }
+    let joined = results.joined(separator: "\n")
+    if expected.allSatisfy({ joined.localizedCaseInsensitiveContains($0) }) { return joined }
+  }
+  return results.joined(separator: "\n")
 }
 
 @MainActor
 @Test(
   .enabled(if: captureDirectory != nil, "Set WICKET_CAPTURE_DIR to draw the panels offscreen"),
+  .serialized,
   arguments: states.filter { captureStates?.contains($0) ?? true })
 func panelCapture(_ state: String) async throws {
   let directory = URL(fileURLWithPath: try #require(captureDirectory))
   try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
   for dark in [false, true] {
     let scenario = try await Scenario.make(state, dark: dark, folder: "\(state)-\(dark)")
-    // Under the load of this run, with every state drawn at once, WebKit took up to five seconds to load
-    // its empty page, more than the fixed wait there was: wait for the render.
-    await scenario.controller?.renderer.settled()
     let target = directory.appending(path: "\(state)-\(dark ? "dark" : "light").png")
-    try await Task.sleep(for: .seconds(1))
+    try await Task.sleep(for: .milliseconds(250))
     // What the panel draws is what the screens committed last: no change to them went undrawn.
     if let controller = scenario.controller {
       #expect(
         controller.presentation == scenario.model.navigator.presentation, "\(state) drew a stale screen")
     }
-    try await render(scenario.view, to: target)
+    try render(scenario.view, to: target)
     if state == "weather-page" || state == "weather-default" {
       let renderer = try #require(scenario.controller?.renderer)
-      let page = try #require(renderer.page)
       // Measure before the renderer's cap, which would hide overflowing content.
-      let height = try await page.callJavaScript(
-        "return document.querySelector('main').getBoundingClientRect().height;",
-        arguments: [:], contentWorld: .defaultClient)
-      let measured = try #require(height as? Double)
+      let measured = renderer.contentHeight
       #expect(
         measured > 0 && measured.rounded(.up) <= renderer.cap,
         "Weather content is \(measured) points high; the panel allows \(renderer.cap).")
     }
-    let text = try recognizedText(in: target)
-    let missing = expectedText(state).filter { !text.localizedCaseInsensitiveContains($0) }
+    let expected = expectedText(state)
+    let text = try await recognizedText(in: target, expecting: expected)
+    let missing = expected.filter { !text.localizedCaseInsensitiveContains($0) }
     #expect(missing.isEmpty, "\(target.lastPathComponent) is missing \(missing). Recognized text: \(text)")
     #expect(!text.isEmpty, "\(target.lastPathComponent) is blank")
     if state == "settings-window" || state == "settings-extensions" {
@@ -1215,7 +1257,7 @@ func panelCapture(_ state: String) async throws {
   }
 }
 
-@MainActor @Test func panelKeepsItsWebViewAcrossAnswersPagesAndSplitLists() async throws {
+@MainActor @Test func panelDrawsArrivingPagesAndSplitListsWithTheirOwnContent() async throws {
   _ = NSApplication.shared
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
@@ -1248,39 +1290,36 @@ func panelCapture(_ state: String) async throws {
   let navigator = model.navigator
 
   try await finishTurn(
-    model, "Show the report", #"## Ready <row title="Open report" open="wicket://report"/>"#)
-  await controller.renderer.settled()
+    model, "Show the report", "## Ready\n[Open report](wicket://report)")
   view.layoutSubtreeIfNeeded()
-  let canvas = try #require(webViews(in: view).first)
   try #require(surface.presentation.agent != nil)
 
   // The answer stays on screen until the arriving page is ready to replace it in one layout.
-  try #require(navigator.clickTarget("#0", revision: navigator.pageTurn))
+  let link = try #require(controller.renderer.document.blocks.flatMap(\.inlineLinks).first)
+  let prose = ProseTextView()
+  prose.open = controller.renderer.open
+  prose.clicked(onLink: link, at: 0)
   try #require(surface.presentation.agent != nil)
   await navigator.settled()
   try #require(
     surface.presentation.agent == nil && surface.presentation.page?.source.contains("## Report") == true)
-  await controller.renderer.settled()
-  #expect(webViews(in: view) == [canvas])
 
   let reportRevision = try #require(surface.presentation.page?.targetRevision)
   try #require(navigator.clickTarget("#0", revision: reportRevision))
   await navigator.settled()
   try #require(surface.presentation.splits)
-  #expect(webViews(in: view) == [canvas])
   navigator.move(1)
   let preview = try #require(surface.presentation.preview)
   #expect(preview.page.source == "Finished")
-  await controller.renderer.settled()
   #expect(controller.renderer.renderedTurn == preview.turn)
-  #expect(webViews(in: view) == [canvas])
+  #expect(controller.renderer.width == PaletteLayout.splitDetail)
+  #expect(controller.renderer.document.blocks.map(\.renderedText) == ["Finished"])
 
   try #require(model.activateReturn())
   await navigator.settled()
   try #require(
     !surface.presentation.splits && surface.presentation.page?.source.contains("## Report") == true)
-  await controller.renderer.settled()
-  #expect(webViews(in: view) == [canvas])
+  #expect(controller.renderer.width == PaletteLayout.pageWidth)
   await controller.finish()
 }
 
@@ -1344,6 +1383,9 @@ func scenariosSetUpTheirState(_ state: String) async throws {
     #expect(model.agent.busy && model.agent.answer.isEmpty && model.agent.turnTiming?.streamingAt == nil)
   case "working-text":
     #expect(model.agent.busy && !model.agent.answer.isEmpty && model.agent.turnTiming?.streamingAt != nil)
+  case "streaming-long": #expect(model.agent.busy && model.agent.answer == streamingAnswer)
+  case "canvas-fields":
+    #expect(model.navigator.page?.fields.count == 4 && model.navigator.selectedTarget == "#field:brightness")
   case "conversation-reopen":
     #expect(model.agent.continuing && model.navigator.input == "Could this work offline?")
   case _ where state.hasPrefix("conversation"):
@@ -1510,9 +1552,8 @@ func renderReply(
       default: break
       }
     }
-    await scenario.controller?.renderer.settled()
-    try await Task.sleep(for: .seconds(1))
-    try await render(scenario.view, to: url)
+    try await Task.sleep(for: .milliseconds(250))
+    try render(scenario.view, to: url)
     await scenario.finish()
   } catch {
     await scenario.finish()

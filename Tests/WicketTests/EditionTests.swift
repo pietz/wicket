@@ -87,7 +87,6 @@ func explicitlyChoosingTheDefaultWorkingFolderSharesExtensionData(_ edition: Edi
   #expect(store.problem == nil && store.configuration == Configuration())
   let history = UsageHistory(url: folder.appending(path: "usage.json"))
   #expect(history.store.entries.isEmpty)
-  try AnswerRenderer.installFiles(in: folder)
 
   for (name, text) in old {
     #expect(try String(contentsOf: folder.appending(path: name), encoding: .utf8) == text)

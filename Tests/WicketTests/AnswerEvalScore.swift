@@ -44,9 +44,12 @@ struct EvalScore: Codable, Sendable {
   init(_ reply: String, question: EvalQuestion) {
     let expectation = question.expect
     let page = Page(body: reply, runs: false)
-    let html = AnswerMarkdown.html(page.source)
-    let opening = html.prefixMatch(of: /\s*<(p|h1)>([\s\S]*?)<\/(?:p|h1)>/)
-    let lead = Self.plain(String(opening?.2.split(separator: "\n").first ?? ""))
+    let blocks = PageDocument(page, turn: "eval", streaming: false).blocks
+    let opensWithHeadline = if case .heading(1, _) = blocks.first { true } else { false }
+    let opensWithParagraph = if case .paragraph = blocks.first { true } else { false }
+    let lead =
+      opensWithHeadline || opensWithParagraph
+      ? String(blocks.first?.renderedText.split(separator: "\n").first ?? "") : ""
     let count = Self.wordCount(lead)
     // A short noun phrase can be the result ("Titan"). Reject headings that repeat the question's topic.
     let questionWords = Set(Self.topicWords(question.question))
@@ -54,7 +57,7 @@ struct EvalScore: Codable, Sendable {
     // Restating the question is never the answer, whatever digits or verbs it contains.
     let restated = Self.normalized(lead) == Self.normalized(question.question)
     // An answer that opens with a component (tiles, a draft card) is the result itself.
-    let opensWithComponent = html.prefixMatch(of: /\s*<w-/) != nil
+    let opensWithComponent = blocks.first.map { !($0.isProse) } ?? false
     let result =
       opensWithComponent
       || !restated && (1...18).contains(count)
@@ -64,30 +67,52 @@ struct EvalScore: Codable, Sendable {
     answerFirst = result
     answerFirstPoints = result ? 20 : 0
 
-    var parts = Dictionary(
-      uniqueKeysWithValues: Self.componentNames.map { name in
-        (name, html.ranges(of: "<w-\(name) ").count)
-      })
-    let columns = html.matches(of: /(?s)<w-columns\b[^>]*>(.*?)<\/w-columns>/)
-    // Side by side means within one columns block, not one item in each of several.
-    parts["tileInColumns"] = columns.map { $0.1.ranges(of: "<w-tile ").count }.max() ?? 0
-    parts["cardInColumns"] = columns.map { $0.1.ranges(of: "<w-card ").count }.max() ?? 0
-    let rows = html.matches(of: /<w-row\b[^>]*\sdata-target="([^"]+)"/)
-    let rowIDs = Set(rows.map { String($0.1) })
-    parts["rowDetail"] =
-      page.targets.filter { row in
-        rowIDs.contains(row.id) && row.actions.contains { if case .detail = $0.kind { true } else { false } }
-      }.count
-    parts["copyRow"] =
-      page.targets.filter { row in
-        rowIDs.contains(row.id) && row.actions.contains { if case .copy = $0.kind { true } else { false } }
-      }.count
-    parts["headline"] = result && opening?.1 == "h1" ? 1 : 0
-    if let opening, opening.1 == "h1",
-      let next = html[opening.range.upperBound...].prefixMatch(
-        of: /\s*<p>([^\n]+)<\/p>/)
+    var parts = Dictionary(uniqueKeysWithValues: Self.componentNames.map { ($0, 0) })
+    var rowIDs: Set<String> = []
+    var headingCount = 0
+    var itemCount = 0
+    var paragraphCount = 0
+    var tableCount = 0
+    func visit(_ block: PageBlock, cardTitle: Bool = false) {
+      switch block {
+      case .rows(let rows), .properties(let rows):
+        parts["row", default: 0] += rows.count
+        rowIDs.formUnion(rows.compactMap(\.target))
+      case .tile: parts["tile", default: 0] += 1
+      case .progresses(let bars): parts["progress", default: 0] += bars.count
+      case .badges(let badges): parts["badge", default: 0] += badges.count
+      case .chart: parts["chart", default: 0] += 1
+      case .card: parts["card", default: 0] += 1
+      case .columns(let cells):
+        parts["columns", default: 0] += 1
+        let tiles = cells.count { if case .tile = $0 { true } else { false } }
+        let cards = cells.count { if case .card = $0 { true } else { false } }
+        parts["tileInColumns"] = max(parts["tileInColumns", default: 0], tiles)
+        parts["cardInColumns"] = max(parts["cardInColumns", default: 0], cards)
+      case .heading(let level, _) where level > 1 && !cardTitle: headingCount += 1
+      case .paragraph(let text):
+        paragraphCount += Self.wordCount(text.plain) > Self.longParagraphWords ? 1 : 0
+        parts["badge", default: 0] += text.runs.count { if case .badge = $0 { true } else { false } }
+      case .list(_, _, let items): itemCount += items.count
+      case .table: tableCount += 1
+      default: break
+      }
+      let card = if case .card = block { true } else { false }
+      for (index, child) in block.children.enumerated() {
+        visit(child, cardTitle: card && index == 0)
+      }
+    }
+    for block in blocks { visit(block) }
+    parts["rowDetail"] = page.targets.count { row in
+      rowIDs.contains(row.id) && row.actions.contains { if case .detail = $0.kind { true } else { false } }
+    }
+    parts["copyRow"] = page.targets.count { row in
+      rowIDs.contains(row.id) && row.actions.contains { if case .copy = $0.kind { true } else { false } }
+    }
+    parts["headline"] = result && opensWithHeadline ? 1 : 0
+    if opensWithHeadline, blocks.count > 1, case .paragraph(let text) = blocks[1], !text.plain.contains("\n")
     {
-      parts["contextLine"] = (1...20).contains(Self.wordCount(Self.plain(String(next.1)))) ? 1 : 0
+      parts["contextLine"] = (1...20).contains(Self.wordCount(text.plain)) ? 1 : 0
     } else {
       parts["contextLine"] = 0
     }
@@ -99,22 +124,15 @@ struct EvalScore: Codable, Sendable {
     }
     shapePoints = Int((55 * coverage / Double(max(1, expectation.minimum.count))).rounded())
 
-    let markdown = html.replacing(/(?s)<w-card\b[^>]*>\s*<h2>.*?<\/h2>/, with: "<w-card>")
-    headings = markdown.matches(of: /<h[2-6]>/).count
-    listItems = markdown.matches(of: /<li>/).count
-    longParagraphs = markdown.matches(of: /(?s)<p>(.*?)<\/p>/).count {
-      Self.wordCount(Self.plain(String($0.1))) > Self.longParagraphWords
-    }
-    tables = markdown.ranges(of: "<table>").count
+    headings = headingCount
+    listItems = itemCount
+    longParagraphs = paragraphCount
+    tables = tableCount
     markdownPoints = max(0, 15 - headings * 3 - listItems * 2 - longParagraphs * 4 - tables * 8)
-    words = Self.wordCount(Self.plain(html))
+    words = Self.wordCount(blocks.map(\.renderedText).joined(separator: " "))
     characters = reply.count
     lengthPoints = words > 0 ? min(10, 10 * expectation.maxWords / words) : 0
     total = words > 0 ? shapePoints + answerFirstPoints + markdownPoints + lengthPoints : 0
-  }
-
-  private static func plain(_ html: String) -> String {
-    html.replacing(/<[^>]*>/, with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   private static func normalized(_ string: String) -> String {

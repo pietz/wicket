@@ -82,7 +82,7 @@ A running turn, a pending permission, or an unseen answer always brings you back
 
 **Agent History** (`history`) keeps the last 100 runs for 30 days outside the working folder. Reopening a run resumes its CLI session when available (or starts fresh with a notice); runs from the non-active agent resume read-only (Claude `plan`, Codex `read-only`) with that agent's default model. The wire log at `~/Library/Logs/Wicket/agent.log` can include prompts, replies, and tool traffic.
 
-Customize standing instructions in `instructions.md` and page styles in `theme.css` inside `~/.config/wicket/`.
+Customize standing instructions in `instructions.md` inside `~/.config/wicket/`. Pages follow Appearance, Transparency and Blur in Settings ▸ General, and the macOS accent colour.
 
 ## Extensions
 

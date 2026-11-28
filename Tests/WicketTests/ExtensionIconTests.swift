@@ -2,7 +2,6 @@ import CoreGraphics
 import Darwin
 import Foundation
 import Testing
-import WebKit
 
 @testable import WicketApp
 
@@ -68,27 +67,23 @@ import WebKit
       Row(id: "gone", title: "Missing icon", icon: "gone.png", actions: []),
     ], runs: true, iconScope: scope)
   #expect(page.iconRequests.keys.sorted() == ["gone", "note", "other"])
-  #expect(page.symbols == ["doc.on.doc", "bookmark"])
-  let versions = page.iconRequests.mapValues(\.version)
-  #expect(PageIcons.extensionStylesheet(for: versions).isEmpty)
-
-  let renderer = AnswerRenderer(folder: folder) { _ in }
-  defer { renderer.release() }
-  await renderer.render(page, turn: "images")
-  try #require(
-    await eventually {
-      PageIcons.extensionStylesheet(for: versions).contains("data:image/png;base64,")
-    })
-  await renderer.settled()
-  let webPage = try #require(renderer.page)
-  let css = try await webPage.callJavaScript(
-    "return document.querySelector('#icons').textContent;", arguments: [:], contentWorld: .defaultClient)
-  let stylesheet = try #require(css as? String)
-  #expect(stylesheet.contains(#"[data-target="note"], [data-target="other"]"#))
-  let extensionCSS = PageIcons.extensionStylesheet(for: versions)
-  #expect(stylesheet.hasSuffix(extensionCSS))
-  #expect(extensionCSS.components(separatedBy: "data:image/png;base64,").count == 2)
-  #expect(!stylesheet.contains("gone"))
+  let renderer = NativePageRenderer()
+  renderer.update(page, turn: "images")
+  func items() -> [PageItem] {
+    renderer.document.blocks.flatMap { block -> [PageItem] in
+      if case .rows(let rows) = block { rows } else { [] }
+    }
+  }
+  let originals = items()
+  #expect(originals.map(\.icon) == ["doc.on.doc", "bookmark", "bookmark", "bookmark"])
+  let version = try #require(originals[1].image)
+  #expect(originals[2].image == version)
+  #expect(await ExtensionIcons.load(version).image != nil)
+  try Data("removed image".utf8).write(to: folder.appending(path: "release.png"), options: .atomic)
+  renderer.refreshExtensionIcons()
+  let changed = try #require(items()[1].image)
+  #expect(changed != version && items()[2].image == changed)
+  #expect(await ExtensionIcons.load(changed).image == nil)
 }
 
 @Test func extensionIconReadsCheckTheOpenedFileAndCapItsBytes() throws {

@@ -3,7 +3,7 @@ import Darwin
 import ImageIO
 import UniformTypeIdentifiers
 
-/// Resolves extension icon choices and shares decoded images between native rows and HTML pages.
+/// Resolves extension icon choices and shares decoded images between list rows and pages.
 @MainActor enum ExtensionIcons {
   struct Scope: Hashable, Sendable {
     let folder: URL
@@ -55,12 +55,9 @@ import UniformTypeIdentifiers
 
   final class Decoded: Sendable {
     let image: CGImage?
-    let cssURL: String?
 
     fileprivate init(_ image: CGImage?) {
       self.image = image
-      cssURL = image.flatMap { NSBitmapImageRep(cgImage: $0).representation(using: .png, properties: [:]) }
-        .map { "data:image/png;base64," + $0.base64EncodedString() }
     }
   }
 

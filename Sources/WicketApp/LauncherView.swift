@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import WebKit
 
 /// An AppKit text field, so input methods, paste and editing shortcuts work: the input and each
 /// field slot. `focused` says whether the model wants it to have the keys; it takes them when that
@@ -248,7 +247,7 @@ struct LauncherView: View {
   private let model: LauncherModel
   private let input: PanelInput
   private let recorder: ShortcutRecorder
-  private let renderer: AnswerRenderer
+  private let renderer: NativePageRenderer
   private var navigator: Navigator { model.navigator }
   /// What the screens show, as committed.
   private var shown: PalettePresentation { panel?.presentation ?? PalettePresentation() }
@@ -264,8 +263,14 @@ struct LauncherView: View {
     recorder = panel.recorder
     renderer = panel.renderer
   }
+  @Environment(\.colorScheme) private var scheme
+  @Environment(\.colorSchemeContrast) private var contrast
   var body: some View {
-    if panel != nil { content.foregroundStyle(Ink.primary) }
+    if panel != nil {
+      content.foregroundStyle(Ink.primary)
+        .onChange(of: scheme) { panel?.appearanceChanged() }
+        .onChange(of: contrast) { panel?.appearanceChanged() }
+    }
   }
   private var content: some View {
     let configuration = model.configuration
@@ -341,7 +346,7 @@ struct LauncherView: View {
       HStack(spacing: 12) {
         let status =
           shown.voiceStatus
-          ?? (agent.map { renderer.problem ?? $0.footer }
+          ?? (agent.map { $0.footer }
             ?? (shown.footerMessage ?? shown.commandName ?? "Wicket"))
         // A running turn's elapsed time takes the status's place, which says how the turn ended once it has.
         if status.isEmpty, panel?.isShown == true, let agent, agent.busy, let timing = agent.turnTiming,
@@ -350,7 +355,7 @@ struct LauncherView: View {
           elapsedTimer(from: timing.start)
         } else {
           Text(status).lineLimit(1).help(
-            shown.voiceStatus ?? agent.map { renderer.problem ?? $0.footer } ?? shown.footerMessage ?? "")
+            shown.voiceStatus ?? agent.map { $0.footer } ?? shown.footerMessage ?? "")
         }
         Spacer()
         if shown.permissionPending {
@@ -498,17 +503,10 @@ struct LauncherView: View {
     let conversation = agent.flatMap { $0.question.isEmpty ? nil : $0 }
     let showsExtension = agent == nil && (shown.problem != nil || shown.page != nil)
     let showsFullPage =
-      conversation.map { $0.permission == nil && $0.problem == nil && renderer.problem == nil && !$0.working }
+      conversation.map { $0.permission == nil && $0.problem == nil && !$0.working }
       ?? (showsExtension && shown.problem == nil)
     let splitHeight = shown.splits ? PaletteLayout.listHeight(shown) : nil
-    let webHeight = splitHeight ?? (showsFullPage ? renderer.height : 0)
-    // The web view shows only what this screen rendered, so a list's detail never flashes under a page
-    // opened from it (or the reverse) while WebKit renders. Keep it mounted: one added after rendering
-    // stayed blank offscreen.
-    let previewReady =
-      shown.splits
-      ? renderer.renderedTurn.hasPrefix(Navigator.previewTurn(shown.command ?? "", nil))
-      : !showsExtension || renderer.renderedTurn == shown.pageTurn
+    let pageHeight = splitHeight ?? (showsFullPage ? renderer.height : 0)
     return HStack(spacing: 0) {
       if shown.splits {
         list.frame(width: PaletteLayout.splitList)
@@ -517,30 +515,20 @@ struct LauncherView: View {
       VStack(spacing: 0) {
         if showsExtension { extensionContent }
         if agent?.question.isEmpty == true { agentDraft }
-        // Keep the host in one place as the layout changes. WebKit traps if SwiftUI mounts a second
-        // view for the page while dismantling the first.
         ScrollView {
           VStack(spacing: 0) {
             if let conversation { conversationContent(conversation) }
-            if webHeight > 0 {
-              Group {
-                if let page = renderer.page {
-                  WebView(page).webViewContentBackground(.hidden)
-                } else {
-                  Color.clear
-                }
-              }
-              .frame(height: webHeight)
-              .opacity(previewReady ? 1 : 0)
+            if pageHeight > 0 {
+              NativePageView(renderer: renderer).frame(height: pageHeight)
             }
           }
         }
-        .frame(height: conversation == nil ? webHeight : nil)
+        .frame(height: conversation == nil ? pageHeight : nil)
       }
     }
     .frame(height: splitHeight)
   }
-  /// One row of the native list. A page draws its own rows in the same metrics (`answers.css`).
+  /// One row of the native list. A page draws its own rows in the same metrics.
   private func resultRow(_ result: Result) -> some View {
     HStack(spacing: 10) {
       icon(result).frame(width: 26, height: 26)
@@ -672,7 +660,7 @@ struct LauncherView: View {
       } action: {
         navigator.confirmationHeight = $0
       }
-    } else if let problem = agent.problem ?? renderer.problem {
+    } else if let problem = agent.problem {
       Text(problem).font(.system(size: textSize.points)).textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
         .frame(minHeight: renderer.height)
@@ -717,7 +705,7 @@ struct ExtensionIcon: View {
   }
 }
 
-private struct RowImage: View {
+struct RowImage: View {
   let version: ExtensionIcons.Version
   let fallback: String
   let symbolSize: CGFloat
@@ -796,17 +784,63 @@ extension RowAction {
 /// `.primary` is 85%) takes on the wallpaper behind it. Explicit colors, since a scroll view's content
 /// resolves `.secondary` from the system again.
 enum Ink {
-  static let primary = Color(nsColor: .textColor)
-  static let secondary = primary.opacity(0.7)
+  static let primary = Color(nsColor: primaryColor)
+  static let secondary = Color(nsColor: secondaryColor)
+  static let primaryColor = NSColor.textColor
+  static let secondaryColor = adaptive(
+    light: NSColor(white: 0.29, alpha: 1), dark: NSColor(white: 0.76, alpha: 1),
+    contrast: (NSColor(white: 0.2, alpha: 1), NSColor(white: 0.85, alpha: 1))
+  )
   static let tertiary = primary.opacity(0.5)
-  /// The page's `--selection` and `--surface` in answers.css.
-  static let selection = adaptive(
+  static let selection = Color(nsColor: selectionColor)
+  static let surface = Color(nsColor: surfaceColor)
+  /// A selected row, on the list and on pages.
+  static let selectionColor = adaptive(
     light: .black.withAlphaComponent(0.18), dark: .white.withAlphaComponent(0.25))
-  static let surface = adaptive(light: .white.withAlphaComponent(0.65), dark: .white.withAlphaComponent(0.08))
-  private static func adaptive(light: NSColor, dark: NSColor) -> Color {
-    Color(
-      nsColor: NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
-      })
+  /// A box on the glass: a page's tile, card and code, and the pill's field slots. Over the
+  /// 70% tint a light box is white, which keeps the wallpaper's colour where black would grey it. With
+  /// Increase Contrast the glass is nearly opaque, so the box is shaded instead.
+  static let surfaceColor = adaptive(
+    light: .white.withAlphaComponent(0.65), dark: .white.withAlphaComponent(0.08),
+    contrast: (.black.withAlphaComponent(0.08), .white.withAlphaComponent(0.12)))
+  static let chartNeutral = Color(
+    nsColor: adaptive(
+      light: NSColor(white: 0.38, alpha: 1), dark: NSColor(white: 0.52, alpha: 1),
+      contrast: (NSColor(white: 0.25, alpha: 1), NSColor(white: 0.72, alpha: 1))))
+  static func tone(_ name: String?) -> Color? {
+    switch name {
+    case "positive": .green
+    case "warning": .orange
+    case "negative": .red
+    default: nil
+    }
+  }
+
+  /// The accent's hue family, numbered like `AppleAccentColor`, so charts skip the matching system colour.
+  /// Read from the resolved colour: hardware-matched accents have their own indices. Neutral is empty.
+  @MainActor static func accentFamily() -> String {
+    guard let color = NSColor.accentSRGB(dark: false) else { return "" }
+    return accentFamily(hue: color.hueComponent * 360, saturation: color.saturationComponent)
+  }
+  nonisolated static func accentFamily(hue: CGFloat, saturation: CGFloat) -> String {
+    guard saturation > 0.15 else { return "" }
+    let families: [(upTo: CGFloat, index: String)] = [
+      (15, "0"), (45, "1"), (70, "2"), (170, "3"), (250, "4"), (300, "5"), (345, "6"),
+    ]
+    return families.first { hue < $0.upTo }?.index ?? "0"
+  }
+  private static func adaptive(
+    light: NSColor, dark: NSColor, contrast: (light: NSColor, dark: NSColor)? = nil
+  ) -> NSColor {
+    NSColor(name: nil) { appearance in
+      switch appearance.bestMatch(from: [
+        .aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua,
+      ]) {
+      case .darkAqua: dark
+      case .accessibilityHighContrastAqua: contrast?.light ?? light
+      case .accessibilityHighContrastDarkAqua: contrast?.dark ?? dark
+      default: light
+      }
+    }
   }
 }

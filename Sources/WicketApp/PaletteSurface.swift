@@ -1,15 +1,10 @@
 import Foundation
 
 /// What the navigator asks of the panel it shows in (`PaletteController`): drawing what it committed, in
-/// the same turn, so the native frame and the content change together; measuring a page before it shows;
-/// and what leaves the screens.
+/// the same turn, so the native frame and the content change together, and handling system effects.
 @MainActor protocol PaletteSurface: AnyObject {
   /// Draws `presentation`, which `change` says what changed in.
   func present(_ change: PaletteChange, _ presentation: PalettePresentation)
-  /// Renders and measures a page before it shows, so the card's height is known when it appears. The
-  /// height is held for the page's turn until the navigator shows it (`PaletteChange.measured`): the page
-  /// shown meanwhile keeps its own.
-  func prepare(_ page: Page, turn: String) async -> PageMeasurement
   /// Whether the panel is up: a hidden run that finds something to show opens it on that only while not.
   var isShown: Bool { get }
   /// Shows the hidden panel without listening, on what `arriving` commits: it runs once a kept conversation
@@ -21,26 +16,9 @@ import Foundation
 enum PaletteChange: Equatable {
   /// What the screens show: the panel renders the page and sizes itself at once.
   case content
-  /// What the screens show, with the page shown now at the height measured for its turn before it showed.
-  case measured(PageHeight)
   /// Only what is selected: the page paints it at once, and beside a list the selected item's detail
   /// shows, without waiting for the next render.
   case selection
-}
-/// A page's height, measured for its turn.
-struct PageHeight: Equatable {
-  let turn: String
-  let height: Double
-}
-/// What measuring a page before it shows found (`PaletteSurface.prepare`).
-enum PageMeasurement: Equatable {
-  case measured(PageHeight)
-  /// The renderer moved on to another page before it measured this one (one renderer serves every
-  /// page): measure again.
-  case superseded
-  /// Nothing measured it: rendering failed, or the panel is hidden. It shows at once, at the height the
-  /// renderer has, and is measured where it shows.
-  case unmeasured
 }
 /// What leaves the screens.
 enum PaletteEffect: Equatable {

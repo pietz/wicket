@@ -7,7 +7,6 @@ import Testing
 @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_LIVE_EXTENSION"] == "1"))
 func realAgentWritesAnExtensionAndItRuns() async throws {
   let folder = try scratch()
-  try AnswerRenderer.installFiles(in: folder)
   try ExtensionHost.installFiles(in: folder)
   let session = AgentSession(folder: folder, log: AgentLog(folder: folder.appending(path: "logs")))
   var settings = AgentConfiguration()

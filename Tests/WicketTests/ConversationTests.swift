@@ -1,12 +1,11 @@
 import AppKit
 import SwiftUI
 import Testing
-import WebKit
 
 @testable import WicketApp
 
 @MainActor @Test(.timeLimit(.minutes(1)))
-func claudeDeltasReachThePaletteAndWebKitBeforeTheTurnEnds() async throws {
+func claudeDeltasReachThePaletteBeforeTheTurnEnds() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel.testing(in: root, bundled: nil)
@@ -16,7 +15,6 @@ func claudeDeltasReachThePaletteAndWebKitBeforeTheTurnEnds() async throws {
     folder: root)
   model.agent.connect = { _, _, _ in AgentLink(ClaudeTranslator(), lines: lines) }
   let controller = PaletteController(model: model, drawsGlass: false, panel: RoutingPanel())
-  defer { controller.renderer.release() }
   let surface = RecordingSurface(wrapping: controller)
   model.navigator.surface = surface
   controller.show(orderFront: false, listen: false)
@@ -31,12 +29,8 @@ func claudeDeltasReachThePaletteAndWebKitBeforeTheTurnEnds() async throws {
       })
     #expect(surface.presentation.pageTurn == turn && surface.presentation.agent?.working == false)
     #expect(surface.presentation.agent?.streaming == true)
-    await controller.renderer.settled()
-    #expect(controller.renderer.renderedTurn == turn && controller.renderer.problem == nil)
-    let rendered =
-      try? await controller.renderer.page?.callJavaScript(
-        "return document.querySelector('main').textContent;", contentWorld: .defaultClient) as? String
-    #expect(rendered?.trimmingCharacters(in: .whitespacesAndNewlines) == text)
+    #expect(controller.renderer.renderedTurn == turn)
+    #expect(controller.renderer.document.blocks.map(\.renderedText).joined(separator: "\n") == text)
   }
 
   // Each next event is withheld until the previous canvas has rendered.
@@ -293,39 +287,6 @@ func immediateAnswerExpiryKeepsARunningTurnAndItsPendingPermission(_ pendingPerm
       rootView: ConfirmationView(content: content, size: size, decide: { _ in }).frame(width: 640))
     #expect(view.fittingSize.height < 560)
   }
-}
-
-@MainActor @Test func aHiddenConversationOverAnExtensionDetailLetsTheRendererRelease() async throws {
-  let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
-  let ext = try extensionFolder(root, fields: ["command": ["/usr/bin/python3", "show.py"]])
-  try Data(
-    "import json,sys; json.load(sys.stdin); print(json.dumps({'body':'Extension detail'}))"
-      .utf8
-  ).write(to: ext.appending(path: "show.py"))
-  let model = LauncherModel.testing(in: root)
-  model.store.update { $0.providers = [.init("extension:test")] }
-  await model.extensions.reload()
-  let controller = PaletteController(model: model, panel: RoutingPanel())
-  controller.renderer.releaseDelay = .milliseconds(200)
-  controller.show(orderFront: false, listen: false)
-  model.navigator.input = "test"
-  await model.navigator.settled()
-  #expect(model.activateReturn())
-  await model.navigator.settled()
-  #expect(model.navigator.body == "Extension detail" && controller.renderer.page != nil)
-  // Ask the agent from the detail, then hide while it works.
-  let fake = FakeAgent()
-  model.agent.connect = { _, _, _ in fake }
-  model.navigator.send("Explain this")
-  #expect(await eventually { fake.running })
-  controller.hide()
-  fake.text("Still working")
-  try await Task.sleep(for: .milliseconds(100))
-  fake.text(" on it")
-  #expect(await eventually { controller.renderer.page == nil })
-  controller.renderer.release()
-  await model.finish()
 }
 
 @MainActor @Test func aNewConversationFromAnExtensionCarriesWhatItShowed() async throws {

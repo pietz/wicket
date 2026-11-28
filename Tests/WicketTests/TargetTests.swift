@@ -39,11 +39,8 @@ import Testing
     ])
   // A known symbol is kept; an unknown one falls back to the action's own icon.
   #expect(page.targets.map(\.icon) == ["link", "doc.text", "doc.on.doc", "sparkles"])
-  #expect(page.symbols == ["link", "doc.text", "doc.on.doc", "sparkles"])
-  // The renderer draws them as rows in one group, and the page never holds an action.
-  let html = AnswerMarkdown.html(page.source)
-  #expect(html.contains(##"<w-rows><w-row data-target="#0""##))
-  #expect(!html.contains("developer.apple.com") && !html.contains("Why is it 42") && !html.contains(">#0<"))
+  let blocks = PageDocument(page, turn: "t", streaming: false).blocks
+  #expect(blocks.count == 5 && blocks[1].holds("#0") && blocks[3].holds("#1") && blocks[3].holds("#3"))
 }
 
 @Test func aReplyWithoutTargetsIsUnchangedAndAnUnfinishedTagWaits() {
@@ -83,10 +80,9 @@ import Testing
   // A row with no action and no detail only shows, its unknown icon left out.
   let shown = Page(body: #"<row label="Owner" value="Ada" icon="no.such.symbol"/>"#, runs: false)
   #expect(
-    shown.targets.isEmpty && shown.source == #"<row label="Owner" value="Ada"/>"# && shown.symbols.isEmpty)
+    shown.targets.isEmpty && shown.source == #"<row label="Owner" value="Ada"/>"#)
   let quiet = Page(body: ##"<row label="9:00" title="Standup" icon="clock" target="#3"/>"##, runs: false)
   #expect(quiet.targets.isEmpty && quiet.source == #"<row label="9:00" title="Standup" icon="clock"/>"#)
-  #expect(quiet.symbols == ["clock"])
 }
 
 @Test func targetsFollowReadingOrderAcrossItemsCodeAndJSONItems() {
@@ -146,24 +142,17 @@ import Testing
   let page = Page(body: body, runs: false)
   #expect(page.targets.map(\.id) == ["#0", "#1", "#2"])
   #expect(page.targets[0].actions == [.copy("du -ah ~ | sort -h", title: "Copy code")])
-  #expect(page.targets[0].icon == "doc.on.doc" && page.symbols == ["doc.on.doc"])
+  #expect(page.targets[0].icon == "doc.on.doc")
   // Each by where its block starts in the page's source, which is where the renderer finds it.
   let bytes = Array(page.source.utf8)
   #expect(page.code.map(\.id) == ["#0", "#2"])
   #expect(
     page.code.map { String(decoding: bytes[$0.start...].prefix(6), as: UTF8.self) } == ["```sh\n", "```\n> "])
-  let html = AnswerMarkdown.html(page.source, code: page.code)
-  #expect(
-    html.contains(
-      ##"<div data-target="#0" data-icon="doc.on.doc"><button aria-label="Copy code"></button><pre><code class="language-sh">du"##
-    ))
-  #expect(
-    html.contains(##"<div data-target="#2""##) && html.components(separatedBy: "</pre>\n</div>").count == 3)
-  // Without the page's ids the same Markdown has no button; an author's own tags never make one.
-  #expect(!AnswerMarkdown.html(page.source).contains("<div"))
-  #expect(
-    AnswerMarkdown.html(##"<div target="#0"><button>x</button></div>"##)
-      .contains("&lt;div target=&quot;#0&quot;&gt;&lt;button&gt;x&lt;/button&gt;&lt;/div&gt;"))
+  let blocks = PageDocument(page, turn: "t", streaming: false).blocks
+  #expect(blocks.contains(.code("du -ah ~ | sort -h", target: "#0")))
+  #expect(blocks.last?.holds("#2") == true)
+  let withoutCopy = Page(body: page.source, runs: false, copies: false)
+  #expect(!PageDocument(withoutCopy, turn: "t", streaming: false).blocks.contains { $0.holds("#0") })
   // Still streaming, a block is no target; beside a list, none is.
   #expect(Page(body: "```sh\ndu -ah", runs: false).targets.isEmpty)
   #expect(Page(body: "```sh\nls\n```", runs: false, copies: false).targets.isEmpty)
@@ -194,25 +183,17 @@ import Testing
       == .detail(
         "## Day\n\nClose it with `</tile>`.",
         action: Row(id: "action", title: "Day", icon: "doc.on.doc", actions: [.copy("d")])))
-  let html = AnswerMarkdown.html(page.source, code: page.code)
-  #expect(
-    html.contains(
-      ##"<div data-target="#0" data-icon="doc.on.doc"><button aria-label="Copy code"></button><pre><code class="language-xml">&lt;tile"##
-    ))
-  #expect(html.contains(#"<code>&lt;row title=&quot;Inline&quot; copy=&quot;no&quot;/&gt;</code>"#))
-  #expect(
-    !html.contains("Literal\" ") && !html.contains(#"data-title="Inline""#) && html.contains("</w-card>"))
+  let blocks = PageDocument(page, turn: "t", streaming: false).blocks
+  #expect(blocks.contains { $0.holds("#0") })
+  #expect(blocks.map(\.renderedText).joined().contains(#"<row title="Inline" copy="no"/>"#))
 }
 
 /// The copy button goes on the block the page made a target, found by where it starts, never by its text.
 @Test func aCopyButtonFindsItsBlockByPosition() {
   let page = Page(body: "Indented:\n\n    ls\n\nFenced:\n\n```\nls\n```", runs: false)
   #expect(page.targets.map(\.id) == ["#0"] && page.code.count == 1)
-  let html = AnswerMarkdown.html(page.source, code: page.code)
-  #expect(
-    html.contains(
-      ##"<pre><code>ls\##n</code></pre>\##n<p>Fenced:</p>\##n<div data-target="#0" data-icon="doc.on.doc"><button aria-label="Copy code"></button><pre><code>ls"##
-    ))
+  let blocks = PageDocument(page, turn: "t", streaming: false).blocks
+  #expect(blocks[1] == .code("ls", target: nil) && blocks[3] == .code("ls", target: "#0"))
 }
 
 /// A fence closes by cmark's own rules, in quotes and lists too; while a reply streams, a closing fence
@@ -231,9 +212,8 @@ import Testing
   // The same after other blocks, which the check of each fence does not read again.
   #expect(copies("Intro\n\n```\nls\n```\n\n> ```\n> ls\n>\t```\n\n- a\n- ```\n  ls\n  ```") == 3)
   #expect(copies("Intro\n\n```\nls\n```\n\n> ```\n> ls\n\nAfter\n\n1. ```\n   ls\n2. ```") == 1)
-  let partial = AnswerMarkdown.html("Text\n<tile title=\"A > B", streaming: true)
-  #expect(partial == "<p>Text</p>\n")
-  #expect(AnswerMarkdown.html("3 < 4", streaming: true).contains("3 &lt; 4"))
+  #expect(document("Text\n<tile title=\"A > B", streaming: true).blocks.map(\.renderedText) == ["Text"])
+  #expect(document("3 < 4", streaming: true).blocks.map(\.renderedText) == ["3 < 4"])
 }
 
 @MainActor @Test func aClosingFenceAtTheEndCountsWhenTheTurnEnds() async throws {
@@ -307,11 +287,10 @@ import Testing
   #expect(navigator.escape())
   #expect(await eventually { surface.presentation.agent?.busy == false && fake.stopped })
   let page = try #require(surface.presentation.page)
-  let html = AnswerMarkdown.html(page.source, code: page.code)
-  #expect(html.contains("<h2>Draft</h2>"))
-  #expect(html.contains("<p>The first <strong>paragraph</strong>.</p>"))
-  #expect(html.contains("<p>The second paragraph.</p>"))
-  #expect(html.contains("&lt;row title=") && !html.contains("data-target"))
+  let blocks = PageDocument(page, turn: "t", streaming: false).blocks
+  let text = blocks.map(\.renderedText).joined(separator: "\n")
+  #expect(text.contains("Draft") && text.contains("The first paragraph."))
+  #expect(text.contains("The second paragraph.") && text.contains("<row title="))
   #expect(page.targets.isEmpty)
   await model.finish()
 }
@@ -374,15 +353,13 @@ import Testing
     <columns gap="0" icon="cloud"><tile title="A" tone="negative"/></columns>
     """
   let page = Page(body: body, runs: false)
-  #expect(page.targets.isEmpty && page.symbols.isEmpty)
+  #expect(page.targets.isEmpty)
   #expect(
     page.source == """
       <progress label="Disk" value="70%" percent="70"/>
       <badge label="Ready" tone="positive"/> after
       <columns><tile title="A"/></columns>
       """)
-  let html = AnswerMarkdown.html(page.source)
-  #expect(!html.contains("Hidden") && html.components(separatedBy: "data-tone").count == 2)
   // Still streaming, a bar shows and what it holds does not.
   #expect(
     Page(body: "<progress label=\"A\" percent=\"5\">Body", runs: false).source
@@ -587,44 +564,6 @@ import Testing
   await model.finish()
 }
 
-@MainActor @Test func theRendererPaintsTheSelectionAndPassesOnlyClicksOnTargets() async throws {
-  let folder = try scratch()
-  defer { try? FileManager.default.removeItem(at: folder) }
-  let renderer = AnswerRenderer(folder: folder) { _ in }
-  defer { renderer.release() }
-  var clicks: [[String]] = []
-  renderer.onTarget = { clicks.append([$0, $1]) }
-  let page = Page(
-    body:
-      "Text with a [link](https://example.com).\n<row title=\"One\" copy=\"1\"/>\n<tile title=\"Two\" copy=\"2\"/>\n\n```\nls\n```",
-    runs: false)
-  await renderer.render(page, turn: "turn-1")
-  let web = try #require(renderer.page)
-  func run(_ script: String) async throws -> Any? {
-    try await web.callJavaScript(script, contentWorld: .defaultClient)
-  }
-  renderer.selected = "#1"
-  var painted: String?
-  for _ in 0..<50 where painted == nil {
-    painted = try await run("return document.querySelector('[data-selected]')?.dataset.target") as? String
-  }
-  #expect(painted == "#1")
-  // A click on a target says which one and on which page; a link and text keep theirs, and code copies
-  // only from its button.
-  _ = try await run("document.querySelector('w-row').click(); document.querySelector('w-tile').click()")
-  _ = try await run("document.querySelector('p a').click(); document.querySelector('p').click()")
-  _ = try await run("document.querySelector('pre').click(); document.querySelector('div button').click()")
-  // A drag that selected text is no click.
-  _ = try await run(
-    "const r = document.createRange(); r.selectNodeContents(document.querySelector('w-row')); getSelection().addRange(r); document.querySelector('w-row').click()"
-  )
-  try await Task.sleep(for: .milliseconds(200))
-  #expect(clicks == [["#0", "turn-1"], ["#1", "turn-1"], ["#2", "turn-1"]])
-  // The page holds no action, and its icons are drawn from data.
-  let html = try await run("return document.documentElement.outerHTML") as? String ?? ""
-  #expect(!html.contains("copy=") && html.contains("data:image/png;base64"))
-}
-
 @MainActor @Test func aListNeverTouchesThePage() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
@@ -638,32 +577,10 @@ import Testing
     await model.navigator.settled()
     model.navigator.move(1)
   }
-  await controller.renderer.settled()
-  // The page is made ready when the panel opens, and nothing is drawn into it for the root's list.
-  let page = try #require(controller.renderer.page)
-  var shell: String?
-  for _ in 0..<200 where shell == nil {
-    shell =
-      try? await page.callJavaScript(
-        "return document.querySelector('main')?.innerHTML ?? null", contentWorld: .defaultClient) as? String
-    if shell == nil { try await Task.sleep(for: .milliseconds(20)) }
-  }
-  #expect(shell == "" && model.navigator.page == nil && controller.renderer.selected == nil)
+  // Nothing is drawn into the page for the root's list.
+  #expect(
+    controller.renderer.document == PageDocument() && controller.renderer.renderedTurn.isEmpty
+      && model.navigator.page == nil && controller.renderer.selected == nil)
   controller.hide()
   await model.finish()
-}
-
-@MainActor @Test func aPageThatComesBackReturnsToWhereItWasScrolled() async throws {
-  let folder = try scratch()
-  defer { try? FileManager.default.removeItem(at: folder) }
-  let renderer = AnswerRenderer(folder: folder) { _ in }
-  defer { renderer.release() }
-  let long = Page(body: (0..<80).map { "Line \($0)" }.joined(separator: "\n\n"), runs: false)
-  await renderer.render(long, turn: "answer")
-  let web = try #require(renderer.page)
-  _ = try await web.callJavaScript("scrollTo(0, 300)", contentWorld: .defaultClient)
-  await renderer.render(Page(body: "# Tue\n\nRain.", runs: false), turn: "answer>#3")
-  #expect(try await web.callJavaScript("return scrollY", contentWorld: .defaultClient) as? Double == 0)
-  await renderer.render(long, turn: "answer")
-  #expect(try await web.callJavaScript("return scrollY", contentWorld: .defaultClient) as? Double == 300)
 }

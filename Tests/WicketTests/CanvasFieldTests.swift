@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-import WebKit
 
 @testable import WicketApp
 
@@ -71,18 +70,13 @@ import WebKit
   #expect(dial.definition.canonical("1.50") == "1.5")
   #expect(dial.nextValue() == "0.75")
   for bad in ["nan", "1.25e1000", "0x1p0", "1.51", "1.4"] { #expect(dial.definition.canonical(bad) == nil) }
-  let html = AnswerMarkdown.html(page.source, fields: page.fields)
-  #expect(html.contains("type=\"checkbox\" switch"))
-  #expect(html.contains("A &amp; &lt;b&gt;"))
-  #expect(html.contains("type=\"range\"") && html.contains("value=\"0.5\""))
-  #expect(html.contains("role=\"radiogroup\"") && html.contains("This=that"))
-  #expect(html.contains("<select") && html.contains("<option value=\"a\" selected>A"))
-  #expect(html.contains("</w-field><w-field data-key=\"when\""))
-  #expect(!html.contains("forged") && !html.contains("set-toggle") && !html.contains("nested"))
-  #expect(html.contains("&lt;field name=&quot;code&quot;"))
-  #expect(html.contains("</w-field><w-field data-key=\"last\""))
-  #expect(html.contains("Last control"))
-  #expect(html.contains("<pre><code>Code at the end\n</code></pre>"))
+  let blocks = PageDocument(page, turn: "t", streaming: false).blocks
+  let shown = blocks.flatMap { block -> [Page.Control] in
+    if case .fields(let fields) = block { fields } else { [] }
+  }
+  #expect(shown.map(\.name) == ["toggle", "dial", "when", "popup", "unplaced", "last"])
+  #expect(shown.first?.label == "A & <b>" && shown.last?.label == "Last control")
+  #expect(blocks.contains(.code("Code at the end", target: nil)))
   if case .detail(let detail, _)? = page.targets[1].actions.first?.kind {
     #expect(Page(body: detail, runs: true).fields.isEmpty)
   } else {
@@ -91,107 +85,7 @@ import WebKit
   #expect(Page(body: body, runs: false, controls: controls).fields.isEmpty)
   #expect(Page(body: body, runs: true, copies: false, controls: controls).fields.isEmpty)
   #expect(Page(body: body, runs: true, streaming: true, controls: controls).fields.isEmpty)
-  #expect(!AnswerMarkdown.html(body).contains("data-key="))
-}
-
-@MainActor @Test(.timeLimit(.minutes(1))) func canvasBridgeKeepsKeyedControlsAndPatchesTheirLiveValues()
-  async throws
-{
-  let folder = try scratch()
-  defer { try? FileManager.default.removeItem(at: folder) }
-  let renderer = AnswerRenderer(folder: folder) { _ in }
-  defer { renderer.release() }
-  var changes: [Page.Control.Change] = []
-  var turns: [String] = []
-  var clicks: [[String]] = []
-  var focus: [String] = []
-  renderer.onFieldChange = {
-    changes.append($0)
-    turns.append($1)
-  }
-  renderer.onTarget = { clicks.append([$0, $1]) }
-  renderer.onFieldFocus = { focus.append($0) }
-  let range = #"<field name="range"/>"#
-  let toggle = #"<field name="switch"/>"#
-  let select = #"<field name="popup"/>"#
-  let segments = #"<field name="radio"/>"#
-  let fields: [Field] = [
-    .init(name: "range", type: .number, min: 0, max: 10, value: "3"),
-    .init(name: "switch", type: .bool, value: "true"),
-    .init(
-      name: "popup", type: .choice, options: [.init("a"), .init("b"), .init("c"), .init("d"), .init("e")],
-      value: "b"),
-    .init(name: "radio", type: .choice, options: [.init("a"), .init("b")], value: "a"),
-  ]
-  let lines = (0..<80).map { "Line \($0)" }.joined(separator: "\n\n")
-  let controls = ProviderView(fields: fields).pageControls()
-  let first = Page(
-    body: "\(range)\n\(toggle)\n\(select)\n\(segments)\n\n\(lines)", runs: true, controls: controls)
-  await renderer.render(first, turn: "controls")
-  let web = try #require(renderer.page)
-  func run(_ script: String) async throws -> Any? {
-    try await web.callJavaScript(script, contentWorld: .defaultClient)
-  }
-  _ = try await run(
-    """
-    globalThis.inputs = [...document.querySelectorAll('w-field :is(input, select)')];
-    const [range, toggle, select, first, second] = inputs;
-    range.value = '9';
-    globalThis.dragging = range;
-    range.dispatchEvent(new Event('input', {bubbles: true}));
-    toggle.checked = false;
-    toggle.dispatchEvent(new Event('change', {bubbles: true}));
-    select.value = 'e';
-    second.checked = true;
-    second.dispatchEvent(new Event('change', {bubbles: true}));
-    range.click();
-    scrollTo(0, 300);
-    """)
-  #expect(await eventually { changes.count == 3 && focus.count == 2 })
-  #expect(
-    changes == [
-      .init(name: "range", value: "9", phase: .preview),
-      .init(name: "switch", value: "false", phase: .commit),
-      .init(name: "radio", value: "b", phase: .commit),
-    ])
-  #expect(turns == ["controls", "controls", "controls"] && clicks.isEmpty)
-  #expect(focus == ["controls", "controls"])
-  var next = Page(
-    body: """
-      # Inserted
-
-      \(toggle)
-      \(segments)
-
-      <row title="Copy" copy="text"/>
-
-      \(select)
-      \(range)
-
-      \(lines)
-      """,
-    runs: true, controls: controls)
-  next.targetRevision = "rendered reply"
-  await renderer.render(next, turn: "controls")
-  #expect(
-    try await run(
-      """
-      return inputs.every(input => input.isConnected)
-        && inputs[0].value === '9' && inputs[1].checked && inputs[2].value === 'b'
-        && inputs[3].checked && !inputs[4].checked && scrollY === 300;
-      """) as? Bool == true)
-  _ = try await run(
-    """
-    document.querySelector('w-row').click();
-    inputs[0].dispatchEvent(new Event('change', {bubbles: true}));
-    globalThis.dragging = null;
-    """)
-  #expect(await eventually { changes.last == .init(name: "range", value: "9", phase: .commit) })
-  #expect(clicks == [["#0", "rendered reply"]] && turns.last == "controls")
-  await renderer.render(next, turn: "controls")
-  #expect(try await run("return inputs[0].value;") as? String == "3")
-  await renderer.render(next, turn: "another")
-  #expect(try await run("return !inputs[0].isConnected && scrollY === 0;") as? Bool == true)
+  #expect(!document(body).blocks.contains { if case .fields = $0 { true } else { false } })
 }
 
 @MainActor @Test func canvasEventsReachTheExtensionAndReturnFollowsReadingOrder() async throws {

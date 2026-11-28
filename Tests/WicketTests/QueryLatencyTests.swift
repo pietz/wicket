@@ -254,11 +254,9 @@ func detailLatency() async throws {
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.show(orderFront: false, listen: false)
   model.navigator.go(Address(extensionName: "clipboard"))
-  await controller.renderer.settled()
   func move(_ delta: Int) async -> Double {
     let start = ContinuousClock.now
     model.navigator.move(delta)
-    await controller.renderer.settled()
     #expect(controller.renderer.renderedTurn == model.navigator.preview?.turn)
     return Double((ContinuousClock.now - start).components.attoseconds) / 1e15
   }

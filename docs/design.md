@@ -10,7 +10,7 @@ Wicket is built from a few building blocks. Every feature should be one of them,
 4. **Item.** A row with an id, a title, and actions, from core sources (apps, files, clipboard), a manifest, a list, or a program's view. *Why:* stable ids make rows bindable to hotkeys, selectable across updates, and learnable by usage.
 5. **Action.** What an item does: `open`, `reveal`, `copy`, `paste`, `run`, `agent`, `save`. `run` sends a request to an extension. *Why:* effects happen only on a submitted request; effects worth reviewing need a named action.
 6. **Address.** A `wicket://` link to the root, an extension, an item, the agent, or Settings; it opens a view and never acts. *Why:* hotkeys, links, and the agent's follow-up rows all point at places the same way.
-7. **View.** A program's answer: `items` (native list), `body` (one HTML page in the page language), and/or `fields` (interactive page controls). Agent answers use the same page language. *Why:* native frame for keys and focus, HTML for freely designed content.
+7. **View.** A program returns `items` for the list, `body` for a page, and/or `fields` for interactive page controls. Agent answers use the same page language. Wicket parses Markdown and page tags into native components and selectable prose. The panel measures the page at its actual width and commits the content and frame together.
 8. **Setting.** A persisted value an extension declares: a field or a list of entries. Wicket draws it in Settings, stores it in `config.json`, and sends it with every request. *Why:* the extension declares, Wicket draws and saves.
 9. **Hotkey.** Keys bound to an openable command or an item with a distinct action. *Why:* the action is one keystroke away without a running process.
 10. **Permission.** Declared by an extension, held by Wicket. *Why:* macOS grants to the app, so only Wicket can hold one; declaring lets it check before launch.
@@ -21,7 +21,7 @@ Wicket is built from a few building blocks. Every feature should be one of them,
 - **Core ↔ extensions:** core owns what must stay alive between keystrokes, hold a macOS permission, or be the frame (panel, input, voice, Settings, agent harness, extension host, and the apps, files, and clipboard sources). Everything that turns input into a screen is an extension.
 - **Wicket ↔ extension:** manifest, request, view, actions, a private data folder; enabled means trusted. Details: [extension contract](../Sources/WicketApp/Resources/extension-contract.md).
 - **Wicket ↔ agent:** the agent works only through plain files in the working folder and headless commands; it answers in the page language. Details: [agent instructions](../Sources/WicketApp/Resources/agent-instructions.md).
-- **Wicket ↔ the user's files:** `config.json` is the only settings store, with one writer that keeps unknown keys; `theme.css` and `instructions.md` are the user's; histories and runtime records stay private outside the working folder.
+- **Wicket ↔ the user's files:** `config.json` is the only settings store, with one writer that keeps unknown keys; `instructions.md` holds the user's standing instructions; histories and runtime records stay private outside the working folder.
 
 ## Checking a new feature
 
