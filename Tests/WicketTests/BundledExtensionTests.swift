@@ -77,16 +77,16 @@ private struct Answer: Equatable {
   let copy: String
 }
 private func calculatorRow(
-  _ input: String, _ locale: ProviderRequest.NumberMarks = us, settings: [String: String] = [:]
+  _ input: String, _ locale: ProviderRequest.NumberMarks = us, settings: [String: String]? = nil
 ) async throws -> Row? {
   var request = ProviderRequest(input: input, locale: locale)
   request.rootMatch = true
-  request.settings = settings.mapValues(JSONValue.string)
+  request.settings = try settings?.mapValues(JSONValue.string) ?? bundled("calculator").settings(nil)
   return try await runBundled("calculator", request: request).items.first
 }
 
 private func calculate(_ input: String, _ locale: ProviderRequest.NumberMarks = us) async throws -> Answer? {
-  guard let row = try await calculatorRow(input, locale, settings: ["precision": "15"]), row.id == "result"
+  guard let row = try await calculatorRow(input, locale), row.id == "result"
   else { return nil }
   guard case .copy(let copy, false) = row.actions.first?.kind, row.prominent == true else {
     throw ExtensionFailure("A result is prominent and copies the number")
@@ -97,9 +97,20 @@ private func calculate(_ input: String, _ locale: ProviderRequest.NumberMarks = 
 // MARK: - Calculator
 
 @Test(arguments: [
+  ("19.99 * 6", "119.94", "119.94"),
+  ("100.5+1", "101.5", "101.5"),
+  ("1234.56 + 0", "1,234.56", "1234.56"),
+  ("1/3", "≈ 0.33", "0.33"),
+  ("=sqrt(10005)", "≈ 100.02", "100.02"),
+])
+func calculatorAutomaticPrecisionKeepsIntegerDigits(input: String, title: String, copy: String) async throws {
+  #expect(try await calculate(input) == .init(title: title, copy: copy))
+}
+
+@Test(arguments: [
   ("2+3*4", "14"), ("(2+3)*4", "20"), ("0.1+0.2", "0.3"), (".5 * 8", "4"),
   ("2^3^2", "512"), ("-2^2", "-4"), ("(-2)^2", "4"), ("2^-2", "0.25"),
-  ("12 ÷ 3 × 2 − 1", "7"), ("1/3", "≈ 0.333333333333333"), ("1000*1000", "1,000,000"), ("12*7", "84"),
+  ("12 ÷ 3 × 2 − 1", "7"), ("1/3", "≈ 0.33"), ("1000*1000", "1,000,000"), ("12*7", "84"),
   ("555 - 1234", "-679"), ("=555-1234", "-679"), ("11/11-2026", "-2,025"), ("100-12-345", "-257"),
 ])
 func arithmetic(input: String, expected: String) async throws {
@@ -121,7 +132,7 @@ func percentages(input: String, expected: String) async throws {
   ("3,5 * 2", "7", "7"), ("1.234,5 + 0", "1234.5", "1234.5"), ("1,234.5 + 0", "1234.5", "1234.5"),
   ("1,000 + 1", "1001", "2"), ("1.000 + 1", "2", "1001"), ("1,000,000 / 2", "500000", "500000"),
   ("1.000.000 / 2", "500000", "500000"), ("0,500 * 2", "1", "1"), ("1,5 + 1.5", "3", "3"),
-  ("10,5%", "0.105", "0.105"), ("1234,500 * 2", "2469", "2469"),
+  ("10,5%", "0.1", "0.1"), ("1234,500 * 2", "2469", "2469"),
 ])
 func decimalMarks(input: String, inUS: String, inGermany: String) async throws {
   #expect(try await calculate(input, us)?.copy == inUS)
@@ -132,12 +143,13 @@ func decimalMarks(input: String, inUS: String, inGermany: String) async throws {
   #expect(try await calculate("1234.5 * 2", us) == .init(title: "2,469", copy: "2469"))
   #expect(try await calculate("1234,5 * 3", de) == .init(title: "3.703,5", copy: "3703,5"))
   #expect(try await calculate("1 - 1", de) == .init(title: "0", copy: "0"))
-  // Any grouping mark, or none, and numbers written out in full with 15 significant digits.
+  // Any grouping mark, or none, and exact integers written out in full.
   let french = ProviderRequest.NumberMarks(decimal: ",", grouping: "\u{202F}")
   #expect(try await calculate("1234,5 * 2", french) == .init(title: "2\u{202F}469", copy: "2469"))
   #expect(try await calculate("1000 * 1000", .init(decimal: ".", grouping: ""))?.title == "1000000")
   #expect(try await calculate("2^60")?.title == "1,152,921,504,606,846,976")
-  #expect(try await calculate("1 / 2^20")?.title == "0.00000095367431640625")
+  #expect(
+    try await calculatorRow("1 / 2^20", settings: ["precision": "20"])?.title == "0.00000095367431640625")
   #expect(try await calculate("1\u{202F}234,5 * 2", french)?.copy == "2469")
   let arabic = ProviderRequest.NumberMarks(decimal: "٫", grouping: "٬")
   #expect(try await calculate("١٬٢٣٤٫٥ + 0", arabic) == .init(title: "1٬234٫5", copy: "1234٫5"))
@@ -208,10 +220,10 @@ func datesVersionsAndPhonesAreNotMath(input: String) async throws {
 }
 
 @Test(arguments: [
-  ("=sqrt(9) + 2^3", "11"), ("=abs(-2)", "2"), ("=sqrt(2)", "≈ 1.4142135623731"),
-  ("=1.5e-3 + 0.5e-3", "0.002"), ("=sin(pi/2) + cos(0)", "≈ 2"), ("=log(100)", "≈ 2"),
+  ("=sqrt(9) + 2^3", "11"), ("=abs(-2)", "2"), ("=sqrt(2)", "≈ 1.41"),
+  ("=1.5e-2 + 0.5e-2", "0.02"), ("=sin(pi/2) + cos(0)", "≈ 2"), ("=log(100)", "≈ 2"),
   ("=round(2.5) + round(-3.5)", "-2"), ("=mod(5,5; 2)", "1.5"),
-  ("=e", "≈ 2.71828182845905"), ("=2", "2"),
+  ("=e", "≈ 2.72"), ("=2", "2"),
 ])
 func explicitArithmetic(input: String, expected: String) async throws {
   #expect(try await calculate(input)?.title == expected)
@@ -221,12 +233,12 @@ func explicitArithmetic(input: String, expected: String) async throws {
   #expect(try await calculate("9007199254740992 + 1")?.copy == "9007199254740993")
   #expect(try await calculate("9007199254740993 - 9007199254740992")?.copy == "1")
   #expect(try await calculate("2^126 + 1")?.copy == "85070591730234615865843651857942052865")
-  #expect(try await calculate("2^128")?.copy == "340282366920938000000000000000000000000")
+  #expect(try await calculate("2^128")?.copy == "340282366920938463463374607431768211456")
   #expect(try await calculate("2^128")?.title.hasPrefix("≈ ") == true)
   #expect(try await calculate("(2^128 - 2^128) + 1") == .init(title: "≈ 1", copy: "1"))
-  #expect(try await calculate("1/3", de) == .init(title: "≈ 0,333333333333333", copy: "0,333333333333333"))
-  #expect(try await calculate("1.234567890123445 + 0")?.title == "≈ 1.23456789012344")
-  #expect(try await calculate("1.234567890123455 + 0")?.title == "≈ 1.23456789012346")
+  #expect(try await calculate("1/3", de) == .init(title: "≈ 0,33", copy: "0,33"))
+  #expect(try await calculate("1001.225 + 0")?.title == "≈ 1,001.22")
+  #expect(try await calculate("1001.235 + 0")?.title == "≈ 1,001.24")
 }
 
 @Test func nonterminatingDivisionKeepsDecimalPrecision() async throws {
@@ -236,9 +248,9 @@ func explicitArithmetic(input: String, expected: String) async throws {
   #expect(row.actions.first == .copy(third))
   #expect(
     try await calculate("=10000000000000000 + 1/3 - 10000000000000000")
-      == .init(title: "≈ 0.333333333333333", copy: "0.333333333333333"))
+      == .init(title: "≈ 0.33", copy: "0.33"))
   #expect(try await calculate("=-(1/3)*3") == .init(title: "≈ -1", copy: "-1"))
-  #expect(try await calculate("=3^-2")?.copy == "0.111111111111111")
+  #expect(try await calculate("=3^-2")?.copy == "0.11")
 }
 
 @Test(arguments: [
@@ -298,7 +310,7 @@ func calculatorStatusesHaveNoCopyAction(input: String, title: String) async thro
     try await calculatorRow("=12345", de, settings: ["outputFormat": "Scientific", "precision": "3"])?.title
       == "≈ 1,23e4")
   #expect(try await calculatorRow("=12345", us, settings: ["outputFormat": "Scientific"])?.title == "≈ 1.2e4")
-  #expect(try await calculatorRow("=1/3", settings: ["precision": "0"])?.title == "≈ 0.3")
+  #expect(try await calculatorRow("=1/3", settings: ["precision": "0"])?.title == "≈ 0")
   #expect(
     try await calculatorRow("=12345", us, settings: ["outputFormat": "Scientific", "precision": "0"])?.title
       == "≈ 1e4")
@@ -357,8 +369,8 @@ func calculatorStatusesHaveNoCopyAction(input: String, title: String) async thro
   await navigator.settled()
   let decimal = ProviderRequest.NumberMarks.current.decimal
   #expect(navigator.command == nil)
-  #expect(navigator.results.first?.row.title == "≈ 1\(decimal)4")
-  #expect(navigator.results.first?.row.actions.first == .copy("1\(decimal)4"))
+  #expect(navigator.results.first?.row.title == "≈ 1\(decimal)41")
+  #expect(navigator.results.first?.row.actions.first == .copy("1\(decimal)41"))
   await model.finish()
 }
 

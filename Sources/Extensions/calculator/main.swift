@@ -31,7 +31,7 @@ private struct Marks {
     }
     format = settings?["outputFormat"]?.string.flatMap(Format.init(rawValue:)) ?? .automatic
     let proposed = settings?["precision"]?.string.flatMap(Int.init)
-    precision = max(format == .fixed ? 0 : 1, proposed.flatMap { (0...34).contains($0) ? $0 : nil } ?? 2)
+    precision = max(format == .scientific ? 1 : 0, proposed.flatMap { (0...34).contains($0) ? $0 : nil } ?? 2)
   }
 
   private static let groupingSpaces: [Character] = [" ", "\u{00A0}", "\u{202F}"]
@@ -695,18 +695,11 @@ private func decimalPoint(_ digits: Substring, exponent: Int, fixedPlaces: Int? 
 private func render(_ number: Number, marks: Marks) -> (machine: String, approximate: Bool) {
   switch number {
   case .decimal(let value, let approximate):
-    let digits = value.significantDigits
-    let target: Int
-    switch marks.format {
-    case .automatic:
-      target = !approximate && value.scale <= 0 ? value.scale : marks.precision - digits + value.scale
-    case .fixed: target = marks.precision
-    case .scientific: target = marks.precision - digits + value.scale
-    }
+    let scientific = marks.format == .scientific
+    let target = scientific ? marks.precision - value.significantDigits + value.scale : marks.precision
     let rounded = value.rounded(to: target)
     let significant = String(abs(rounded.coefficient))
     let exponent = significant.count - rounded.scale - 1
-    let scientific = marks.format == .scientific
     let places = scientific ? marks.precision - 1 : marks.format == .fixed ? marks.precision : nil
     let text = decimalPoint(significant[...], exponent: scientific ? 0 : exponent, fixedPlaces: places)
     let sign = rounded.coefficient < 0 ? "-" : ""
@@ -715,21 +708,24 @@ private func render(_ number: Number, marks: Marks) -> (machine: String, approxi
       approximate || rounded.coefficient != value.coefficient || rounded.scale != value.scale
     )
   case .floating(let value):
-    let places = marks.format == .fixed ? marks.precision : marks.precision - 1
-    let pattern = marks.format == .fixed ? "%.*f" : "%.*e"
+    let scientific = marks.format == .scientific
+    let places = scientific ? marks.precision - 1 : marks.precision
+    let pattern = scientific ? "%.*e" : "%.*f"
     var buffer = [CChar](repeating: 0, count: 384)
-    let text = buffer.withUnsafeMutableBufferPointer { buffer in
+    var text = buffer.withUnsafeMutableBufferPointer { buffer in
       _ = withVaList([CInt(places), value == 0 ? 0.0 : value]) {
         vsnprintf(buffer.baseAddress!, buffer.count, pattern, $0)
       }
       return String(cString: buffer.baseAddress!)
     }
-    if marks.format != .automatic { return (text, true) }
-    let parts = text.split(separator: "e")
-    let sign = parts[0].hasPrefix("-") ? "-" : ""
-    var digits = parts[0].filter(isDigit)[...]
-    while digits.count > 1, digits.last == "0" { digits = digits.dropLast() }
-    return (sign + decimalPoint(digits, exponent: Int(parts[1])!), true)
+    if marks.format == .automatic {
+      if places > 0 {
+        while text.last == "0" { text.removeLast() }
+        if text.last == "." { text.removeLast() }
+      }
+      if text == "-0" { text = "0" }
+    }
+    return (text, true)
   }
 }
 

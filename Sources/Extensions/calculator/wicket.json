@@ -9,6 +9,6 @@
   "settings": [
     {"name": "inputFormat", "type": "choice", "description": "Input decimal mark", "options": ["Locale", "Dot", "Comma"], "default": "Locale"},
     {"name": "outputFormat", "type": "choice", "description": "Output format", "options": ["Automatic", "Fixed", "Scientific"], "default": "Automatic"},
-    {"name": "precision", "type": "choice", "placeholder": "Precision", "description": "Significant digits (at least one), or decimal places in Fixed", "options": ["0", "1", "2", "3", "4", "5"], "default": "2"}
+    {"name": "precision", "type": "choice", "placeholder": "Precision", "description": "Decimal places in Automatic and Fixed, significant digits (at least one) in Scientific", "options": ["0", "1", "2", "3", "4", "5"], "default": "2"}
   ]
 }

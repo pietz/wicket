@@ -157,7 +157,7 @@ func conversionShowsAnUnavailableRateWithoutActions(rate: String) async throws {
     ("10 km in mi", "units", "6\(decimal)2137 mi", "6\(decimal)2137 mi"),
     ("100 usd to eur", "units", "80 EUR", "80 EUR"),
     ("100 usd", "units", "80 EUR", "80 EUR"),
-    ("=sqrt(2)", "calculator", "≈ 1\(decimal)414", "1\(decimal)414"),
+    ("=sqrt(2)", "calculator", "≈ 1\(decimal)4142", "1\(decimal)4142"),
   ] {
     model.navigator.input = input
     await model.navigator.settled()

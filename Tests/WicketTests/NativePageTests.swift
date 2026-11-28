@@ -311,7 +311,7 @@ private func kinds(_ blocks: [PageBlock]) -> [String] {
   #expect(heading?.headerLevel == 2)
 }
 
-@Test func shiftArrowsExtendAProseSelectionWithTheirKeypadFlags() throws {
+@MainActor @Test func shiftArrowsExtendAProseSelectionWithTheirKeypadFlags() throws {
   func arrow(_ keyCode: UInt16, _ flags: NSEvent.ModifierFlags) throws -> NSEvent {
     try #require(
       NSEvent.keyEvent(
