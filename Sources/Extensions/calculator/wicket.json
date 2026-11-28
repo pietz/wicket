@@ -5,7 +5,7 @@
   "command": ["./main"],
   "match": "\\A(?:\\s*=[\\s\\S]*|(?=[\\s\\S]*\\p{Nd})(?=[\\s\\S]*[-+−*/×÷^%])[-+−*/×÷^%().,\\p{Nd}\\s'’٫٬]+)\\z",
   "contract": 2,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "settings": [
     {"name": "inputFormat", "type": "choice", "description": "Input decimal mark", "options": ["Locale", "Dot", "Comma"], "default": "Locale"},
     {"name": "outputFormat", "type": "choice", "description": "Output format", "options": ["Automatic", "Fixed", "Scientific"], "default": "Automatic"},
