@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Testing
 
 @testable import WicketApp
@@ -331,6 +332,21 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   #expect(!recorder.isRecording && pauses == [true, false])
   recorder.stop()
   #expect(pauses == [true, false])
+}
+
+@MainActor @Test func deleteWhileRecordingRemovesTheTargetBinding() throws {
+  _ = NSApplication.shared
+  try withSettings { file in
+    let target = HotkeyTarget(target: "extension:test")
+    try file.bind(Shortcut("ctrl+k"), to: target)
+    let store = ConfigurationStore(url: file.url)
+    store.load()
+    let recorder = ShortcutRecorder()
+    recorder.record(target, store: store, pausing: { _ in })
+    recorder.keyPressed(kVK_Delete, modifiers: [])
+    #expect(!recorder.isRecording)
+    #expect(try Configuration.load(at: file.url).hotkeys.isEmpty)
+  }
 }
 
 @MainActor @Test func failedHotkeyWriteRestoresRegistrationAndAllowsRetry() throws {

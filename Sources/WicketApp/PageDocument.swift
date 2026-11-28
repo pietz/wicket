@@ -6,6 +6,7 @@ import cmark_gfm_extensions
 struct PageDocument: Equatable {
   var blocks: [PageBlock] = []
   var picture: URL?
+  var hasTextFields = false
   /// The revision clicks are made on (`Page.targetRevision`, else the turn).
   var revision = ""
 }
@@ -29,6 +30,16 @@ indirect enum PageBlock: Equatable {
   case columns([PageBlock])
   case fields([Page.Control])
   case chart(Chart, pending: Bool)
+
+  var firstTextField: String? {
+    switch self {
+    case .fields(let controls): controls.first(where: \.isText)?.name
+    case .card(_, let blocks), .columns(let blocks), .quote(let blocks):
+      blocks.lazy.compactMap(\.firstTextField).first
+    case .list(_, _, let items): items.joined().lazy.compactMap(\.firstTextField).first
+    default: nil
+    }
+  }
 
   /// Whether the block holds the target, for bringing a block the lazy page hasn't built into view.
   func holds(_ target: String) -> Bool {
@@ -102,6 +113,7 @@ extension PageDocument {
     _ page: Page, turn: String, streaming: Bool, icons: [String: ExtensionIcons.Version] = [:]
   ) {
     picture = page.picture
+    hasTextFields = !page.textFields.isEmpty
     revision = page.targetRevision ?? turn
     var files: [String: URL] = [:]
     for row in page.targets where icons[row.id] == nil {

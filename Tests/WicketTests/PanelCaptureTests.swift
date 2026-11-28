@@ -27,6 +27,10 @@ private let captureDirectory = ProcessInfo.processInfo.environment["WICKET_CAPTU
 private let captureStates = ProcessInfo.processInfo.environment["WICKET_CAPTURE_STATES"]?
   .split(separator: ",").map(String.init)
 
+private let controlStates = [
+  "canvas-text-fields", "canvas-text-invalid", "canvas-form", "canvas-control-details",
+]
+
 private let states =
   [
     "empty", "apps", "actions", "math", "ask", "answer", "listening",
@@ -48,7 +52,7 @@ private let states =
     "settings-quicklinks", "settings-quicklinks-add", "settings-quicklinks-edit",
     "settings-quicklinks-search", "settings-window-add", "settings-window-invalid", "settings-error",
     "settings-conflict",
-  ] + transitions + ChartFixture.all.keys.sorted()
+  ] + transitions + ChartFixture.all.keys.sorted() + controlStates
 
 /// Moments in the middle of a switch, recorded before the screens move to their own owners: each is
 /// drawn at its checkpoint, not once everything settled, so a broken transition cannot pass.
@@ -165,6 +169,14 @@ private func expectedText(_ name: String) -> [String] {
   }
   if name.contains("working") { return ["What should I build next", "Cancel"] }
   if name == "streaming-long" { return ["Next steps", "swift build", "Cancel"] }
+  if name == "canvas-text-fields" { return ["Connection Preferences", "Server", "sync.example.com", "8443"] }
+  if name == "canvas-text-invalid" { return ["Connection Preferences", "Enter a number from 1 to 65535"] }
+  if name == "canvas-form" { return ["Add Window Move", "Coding", "Width", "66.67", "Keyword", "Save"] }
+  if name == "canvas-control-details" {
+    return [
+      "Display Preferences", "Brightness", "70", "Standard Display Scaling", "Reset Display Preferences",
+    ]
+  }
   if name == "canvas-fields" { return ["Display", "Brightness", "Night Shift", "Appearance", "Scale"] }
   if name.contains("listening") { return ["rainbows", "Ask agent", "Listening", "Ask", "Close"] }
   if name.contains("asking-extension") {
@@ -538,6 +550,25 @@ private let installedAgent: Void = {
         try await Task.sleep(for: .milliseconds(50))
       }
       return scenario
+    case _ where controlStates.contains(state):
+      let response = try Data(contentsOf: fixtureURL("capture-page-controls.json"))
+      let views = try JSONDecoder().decode([String: ProviderView].self, from: response)
+      let recorded = try #require(views[state])
+      let wire = String(decoding: try JSONEncoder().encode(recorded), as: UTF8.self)
+      _ = try extensionFolder(
+        folder, name: "controls", script: "cat >/dev/null\ncat <<'PAGE'\n\(wire)\nPAGE",
+        fields: ["name": "Canvas Controls", "fields": []])
+      await model.extensions.reload()
+      let navigator = model.navigator
+      navigator.go(Address(id: "controls"))
+      await navigator.settled()
+      if state == "canvas-text-invalid" {
+        let turn = navigator.pageTurn
+        navigator.focusPageText("port", turn: turn)
+        navigator.editPageText("port", to: "70000", turn: turn)
+        navigator.run()
+      }
+      if state == "canvas-control-details" { navigator.move(1) }
     case "canvas-fields":
       let view = ProviderView(
         body: """
@@ -1384,6 +1415,14 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "working-text":
     #expect(model.agent.busy && !model.agent.answer.isEmpty && model.agent.turnTiming?.streamingAt != nil)
   case "streaming-long": #expect(model.agent.busy && model.agent.answer == streamingAnswer)
+  case "canvas-text-fields":
+    #expect(model.navigator.page?.textFields.map(\.name) == ["host", "port"])
+  case "canvas-text-invalid":
+    #expect(model.navigator.page?.fields["port"]?.invalidText == "70000")
+  case "canvas-form":
+    #expect(model.navigator.focusedPageField == "title")
+  case "canvas-control-details":
+    #expect(model.navigator.page?.targets.last?.tone == .destructive)
   case "canvas-fields":
     #expect(model.navigator.page?.fields.count == 4 && model.navigator.selectedTarget == "#field:brightness")
   case "conversation-reopen":

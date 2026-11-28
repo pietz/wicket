@@ -79,6 +79,7 @@ Content between opening and closing tags becomes the item's detail screen, using
   `<tile label="Yearly" icon="calendar" title="€240" subtitle="€20 a month"/>`
 - **`progress`**: thin bar (`label`, `value`, `percent` 0–100) for capacity, shares, and progress. Consecutive bars share a line. Self-closing, no detail.
   `<progress label="Disk" value="420 of 600 GB" percent="70"/>`
+- Give a row `tone="destructive"` when it leads to a destructive action, such as deleting saved data. It draws in system red.
 - **`badge`**: inline capsule (`label`, `tone`), for a state that is good or bad for the user: `positive` a success, `negative` a failure, `warning` a risk they must act on. Self-closing, no detail.
   `<badge label="Overdue" tone="negative"/>`
 - **`chart`**: a plot of the numbers you give it; shown only, never selectable. On the chart: `title`, `unit`, and `highlight="max"` or `"min"` to accent one bar, or one column of a single series. Inside, one of:

@@ -64,7 +64,10 @@ struct Page: Equatable, Sendable {
     func nextID() -> String { "#\(targets.count - fields.count)" }
     func placeControl(_ field: Control) -> String {
       fields[field.name] = field
-      targets.append(Row(id: field.id, title: field.label, actions: [RowAction(.field(field.name))]))
+      targets.append(
+        Row(
+          id: field.id, title: field.label, actions: [RowAction(.field(field.name), title: field.returnLabel)]
+        ))
       return Self.tag("field", nil, [("name", field.name)], icon: nil, close: true)
     }
     /// An item's canonical tag, a target's with its id; empty when it is dropped. A bar or a badge has
@@ -175,9 +178,11 @@ struct Page: Equatable, Sendable {
         ?? []
       let row = Row(
         id: item.id.hasPrefix("#") ? "#" + item.id : item.id, title: item.title, subtitle: item.subtitle,
-        icon: item.icon, actions: detail + item.actions, keywords: item.keywords, prominent: item.prominent)
+        icon: item.icon, actions: detail + item.actions, keywords: item.keywords, prominent: item.prominent,
+        tone: item.tone)
       own.append(row)
-      let values = [("title", row.title)] + (row.subtitle.map { [("subtitle", $0)] } ?? [])
+      var values = [("title", row.title)] + (row.subtitle.map { [("subtitle", $0)] } ?? [])
+      if let tone = row.tone ?? row.actions.first?.tone { values.append(("tone", tone.rawValue)) }
       var symbol = row.icon ?? "app"
       if let iconScope, ExtensionIcons.nativeFile(for: item) == nil {
         let choice = ExtensionIcons.choices(row.icon, manifest: iconScope.manifest)
@@ -194,13 +199,31 @@ struct Page: Equatable, Sendable {
   }
 
   mutating func fill(_ name: String, with value: String) {
-    if let value = fields[name]?.definition.canonical(value) { fields[name]?.value = value }
+    guard let value = fields[name]?.canonical(value) else { return }
+    fields[name]?.value = value
+    fields[name]?.invalidText = nil
+    if let field = fields[name], let index = targets.firstIndex(where: { $0.id == field.id }) {
+      targets[index].actions[0].title = field.returnLabel
+    }
+  }
+  mutating func markInvalid(_ name: String, text: String?) {
+    guard fields[name]?.isText == true else { return }
+    fields[name]?.invalidText = text
+  }
+
+  var textFields: [Control] {
+    targets.compactMap { row in
+      guard case .field(let name)? = row.actions.first?.kind, let field = fields[name], field.isText else {
+        return nil
+      }
+      return field
+    }
   }
 
   /// The tags a page reads and what each shows; its icon comes separately. Rows and tiles are items
   /// that can be targets, bars and badges are items that only show, and columns and cards contain.
   static let slots: [String: Set<String>] = [
-    "row": ["label", "title", "subtitle", "value"], "tile": ["label", "title", "subtitle", "value"],
+    "row": ["label", "title", "subtitle", "value", "tone"], "tile": ["label", "title", "subtitle", "value"],
     "progress": ["label", "value", "percent"], "badge": ["label", "tone"], "columns": [], "card": [],
     "field": ["name"],
   ]
@@ -212,7 +235,10 @@ struct Page: Equatable, Sendable {
   private static func tag(
     _ name: String, _ id: String?, _ values: [(String, String)], icon: String?, close: Bool
   ) -> String {
-    let kept = values.filter { key, _ in slots[name]?.contains(key) == true }
+    let kept = values.filter { key, value in
+      slots[name]?.contains(key) == true
+        && (name != "row" || key != "tone" || ActionTone(rawValue: value) != nil)
+    }
     let attributes = (id.map { [("target", $0)] } ?? []) + kept + (icon.map { [("icon", $0)] } ?? [])
     return "<\(name)" + attributes.map { " \($0)=\(quoted($1))" }.joined() + (close ? "/>" : ">")
   }
@@ -281,7 +307,7 @@ struct Page: Equatable, Sendable {
   ) -> Kind {
     func value(_ key: String) -> String? { values.first { $0.0 == key }?.1 }
     let title = value("title")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    let named: RowAction?
+    var named: RowAction?
     let beforeDetail: Bool
     switch action(values, detail: detail, runs: runs) {
     case .refused: return .dropped
@@ -292,6 +318,8 @@ struct Page: Equatable, Sendable {
     guard !title.isEmpty else { return .dropped }
     // An unknown symbol would draw nothing; the action's own icon is the fallback.
     let icon = symbol(values) ?? named?.symbol ?? "text.page"
+    let tone = value("tone").flatMap(ActionTone.init)
+    named?.tone = tone
     var actions = named.map { [$0] } ?? []
     if let detail {
       // A tile's title is often a figure, which its label names ("Wed · 14° 8°").
@@ -306,7 +334,7 @@ struct Page: Equatable, Sendable {
     return .target(
       Row(
         id: id, title: title, subtitle: value("subtitle").flatMap { $0.isEmpty ? nil : $0 }, icon: icon,
-        actions: actions))
+        actions: actions, tone: tone))
   }
 
   private static func detailBody(title: String, content: String) -> String {

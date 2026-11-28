@@ -14,10 +14,12 @@ final class NativePageRenderer {
   @ObservationIgnored private var streaming = false
   var cap: Double = PaletteLayout.answerMax
   var selected: String?
+  var focusedField: String?
   private(set) var width = PaletteLayout.pageWidth
   private(set) var textSize = Configuration.TextSize.medium
   @ObservationIgnored var onTarget: ((String, String) -> Void)?
   @ObservationIgnored var onFieldChange: ((Page.Control.Change, String) -> Void)?
+  @ObservationIgnored var onText: ((String, PageContext.TextEvent, String) -> Void)?
   @ObservationIgnored var onFieldFocus: ((String) -> Void)?
   @ObservationIgnored let open: @MainActor (URL) -> Void
   @ObservationIgnored private var source: Page?
@@ -37,6 +39,7 @@ final class NativePageRenderer {
     let turn = renderedTurn
     return PageContext(
       scale: textSize.scale, rowHeight: textSize.rowHeight, width: width, revision: revision, turn: turn,
+      focusedField: focusedField, text: { [weak self] name, event in self?.onText?(name, event, turn) },
       open: open,
       click: { [weak self] id in
         guard let self else { return }
@@ -162,7 +165,8 @@ struct NativePageView: View {
         if let block = blocks.firstIndex(where: { $0.holds(id) }),
           let segment = PageBlocks.segments(blocks).first(where: { $0.contains(block) })
         {
-          proxy.scrollTo(PageBlocks.id(segment.lowerBound, lazy: true))
+          proxy.scrollTo(
+            PageBlocks.id(segment.lowerBound, in: blocks, lazy: !renderer.document.hasTextFields))
           DispatchQueue.main.async { [weak renderer = renderer] in
             guard renderer?.selected == id else { return }
             proxy.scrollTo(id)

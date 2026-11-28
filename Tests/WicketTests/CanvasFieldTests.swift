@@ -56,11 +56,13 @@ import Testing
   let page = Page(body: body, runs: true, controls: controls)
   #expect(
     page.targets.map(\.id) == [
-      "#field:toggle", "#0", "#field:dial", "#field:when", "#field:popup", "#field:unplaced", "#field:last",
+      "#field:toggle", "#0", "#field:dial", "#field:when", "#field:popup", "#field:noBounds",
+      "#field:freeform", "#field:unplaced", "#field:last",
     ])
   #expect(
     page.fields.mapValues(\.value) == [
-      "toggle": "true", "dial": "0.5", "when": "this&that", "popup": "a", "unplaced": "false",
+      "toggle": "true", "dial": "0.5", "when": "this&that", "popup": "a", "noBounds": "", "freeform": "",
+      "unplaced": "false",
       "last": "false",
     ])
   #expect(page.fields["toggle"]?.action == "set-toggle")
@@ -68,13 +70,14 @@ import Testing
   let dial = try #require(page.fields["dial"])
   #expect(dial.action == "set dial")
   #expect(dial.definition.canonical("1.50") == "1.5")
-  #expect(dial.nextValue() == "0.75")
+  #expect(dial.steppedValue() == "0.75")
   for bad in ["nan", "1.25e1000", "0x1p0", "1.51", "1.4"] { #expect(dial.definition.canonical(bad) == nil) }
   let blocks = PageDocument(page, turn: "t", streaming: false).blocks
   let shown = blocks.flatMap { block -> [Page.Control] in
     if case .fields(let fields) = block { fields } else { [] }
   }
-  #expect(shown.map(\.name) == ["toggle", "dial", "when", "popup", "unplaced", "last"])
+  #expect(
+    shown.map(\.name) == ["toggle", "dial", "when", "popup", "noBounds", "freeform", "unplaced", "last"])
   #expect(shown.first?.label == "A & <b>" && shown.last?.label == "Last control")
   #expect(blocks.contains(.code("Code at the end", target: nil)))
   if case .detail(let detail, _)? = page.targets[1].actions.first?.kind {
@@ -833,7 +836,7 @@ import Testing
   let json = """
     {
       "items": [{"id": "a", "title": "Row A", "actions": []}],
-      "fields": [{"name": "query", "type": "text"}]
+      "fields": [{"name": "query", "type": "text", "multiline": true}]
     }
     """
   let view = try JSONDecoder().decode(ProviderView.self, from: Data(json.utf8))
@@ -853,4 +856,124 @@ import Testing
     items: [], actions: [RowAction(.save(setting: "links", values: ["title": "Docs"]))],
     fields: [Field(name: "query", type: .bool)])
   #expect(saveView.saveAction(reservedFields: manifestFields) != nil)
+}
+
+@MainActor @Test func canvasTextFieldsCommitOnLeavingAndEscapeRestoresTheirText() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root,
+    script: #"""
+      IFS= read -r request
+      printf '%s\n' "$request" >>log.jsonl
+      printf '%s' '{"title":"Connection","fields":[{"name":"host","type":"text","value":"remote","default":"localhost","action":true},{"name":"port","type":"number","min":1,"max":65535,"value":8443,"action":true}]}'
+      """#, fields: ["fields": []])
+  let (model, surface) = await openCanvas(in: root)
+  let navigator = model.navigator
+  let turn = navigator.pageTurn
+
+  navigator.move(1)
+  #expect(navigator.selectedTarget == "#field:host" && navigator.focusedPageField == nil)
+  navigator.run()
+  #expect(navigator.focusedPageField == "host")
+  navigator.editPageText("host", to: "discard", turn: turn)
+  #expect(navigator.escape())
+  #expect(navigator.focusedPageField == nil && navigator.page?.fields["host"]?.text == "remote")
+  #expect(try requests(in: folder).count == 1)
+
+  #expect(navigator.moveFocus(1))
+  navigator.editPageText("host", to: "", turn: turn)
+  #expect(navigator.moveFocus(1))
+  await navigator.settled()
+  #expect(navigator.focusedPageField == "port" && navigator.pageTurn == turn)
+  #expect(try requests(in: folder).last?.fields["host"] == "localhost")
+  #expect(surface.presentation.viewTitle == "Connection")
+
+  navigator.editPageText("port", to: "70000", turn: turn)
+  navigator.run()
+  #expect(navigator.page?.fields["port"]?.text == "70000")
+  #expect(navigator.page?.fields["port"]?.problem == "Enter a number from 1 to 65535.")
+  #expect(try requests(in: folder).map(\.action) == [nil, "set-host"])
+  navigator.run()
+  navigator.editPageText("port", to: "443", turn: turn)
+  navigator.dismiss()
+  await navigator.settled()
+  #expect(try requests(in: folder).last?.action == "set-port")
+  #expect(try requests(in: folder).last?.fields["port"] == "443")
+  await model.finish()
+}
+
+@MainActor @Test func canvasFormKeepsDraftsLocalUntilItsDefaultAction() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root,
+    script: #"""
+      IFS= read -r request
+      printf '%s\n' "$request" >>log.jsonl
+      printf '%s' '{"body":"<field name=\"name\"/>\n<field name=\"size\"/>\n<field name=\"mode\"/>","fields":[{"name":"size","type":"number"},{"name":"name","type":"text"},{"name":"mode","type":"choice","options":["a","b","c"]}],"actions":[{"type":"run","action":"save","title":"Save"}]}'
+      """#, fields: ["fields": []])
+  let (model, surface) = await openCanvas(in: root)
+  let navigator = model.navigator
+  let turn = navigator.pageTurn
+  #expect(surface.presentation.focusedPageField == "name")
+  #expect(navigator.returnAction?.label == "Save")
+  navigator.editPageText("name", to: "New preset", turn: turn)
+  #expect(navigator.moveFocus(1))
+  #expect(navigator.focusedPageField == "size")
+  navigator.editPageText("size", to: "wrong", turn: turn)
+  navigator.run()
+  #expect(navigator.focusedPageField == "size")
+  #expect(try requests(in: folder).count == 1)
+
+  navigator.editPageText("size", to: "18.2", turn: turn)
+  navigator.move(1)
+  #expect(navigator.focusedPageField == nil)
+  #expect(navigator.stepField(1))
+  #expect(navigator.stepField(1))
+  #expect(navigator.stepField(1))
+  #expect(navigator.stepField(-1))
+  #expect(navigator.page?.fields["mode"]?.value == "b")
+  #expect(try requests(in: folder).count == 1)
+
+  navigator.focusPageText("size", turn: turn)
+  navigator.run()
+  await navigator.settled()
+  let sent = try requests(in: folder)
+  #expect(sent.map(\.action) == [nil, "save"])
+  #expect(sent.last?.submitted == true)
+  #expect(sent.last?.fields == ["name": "New preset", "size": "18.2", "mode": "b"])
+  await model.finish()
+}
+
+@Test func pageControlsRespectTheNumericSliderThreshold() throws {
+  let slider = try #require(Page.Control(.init(name: "n", type: .number, min: 0, max: 100, value: "100")))
+  #expect(!slider.isText)
+  #expect(slider.steppedValue(1, wrapping: false) == "100")
+  #expect(slider.steppedValue(-1, wrapping: false) == "99")
+  #expect(slider.steppedValue() == "0")
+  let number = try #require(Page.Control(.init(name: "n", type: .number, min: 0, max: 101, value: "0.5")))
+  #expect(number.isText)
+  #expect(number.canonical("100.5") == "100.5")
+  #expect(number.canonical("101.5") == nil)
+}
+
+@Test func destructiveToneFollowsTheActionIntoItsDetailAndList() throws {
+  let page = Page(
+    body: """
+      <row title="Reset…" tone="destructive" action="Reset" run="reset">Restore the defaults.</row>
+      """, runs: true)
+  let row = try #require(page.targets.first)
+  #expect(row.tone == .destructive)
+  guard case .detail(_, let action)? = row.actions.first?.kind else {
+    Issue.record("Missing confirmation detail")
+    return
+  }
+  let detail = Page(body: "", items: [try #require(action)], runs: true)
+  #expect(detail.targets.first?.actions.first?.tone == .destructive)
+  #expect(detail.source.contains("tone=\"destructive\""))
+
+  let raw = #"{"items":[{"id":"reset","title":"Reset","tone":"destructive","actions":[]}]}"#
+  let list = try JSONDecoder().decode(ProviderView.self, from: Data(raw.utf8))
+  #expect(list.items.first?.tone == .destructive)
 }

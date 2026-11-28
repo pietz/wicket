@@ -74,6 +74,7 @@ struct PalettePresentation: Equatable {
   /// (`Navigator.showsBusy`), and its view's own actions.
   var command: String?
   var commandName: String?
+  var viewTitle: String?
   var commandPlaceholder: String?
   var problem: String?
   var busy = false
@@ -85,6 +86,7 @@ struct PalettePresentation: Equatable {
   var pageTurn = ""
   var inDetail = false
   var selectedTarget: String?
+  var focusedPageField: String?
   var offersActions = false
   var returnsOnEscape = false
   var askingAbout: String?
@@ -109,10 +111,12 @@ extension Navigator {
       nearbyPictures: nearbyPictures, actionsTitle: actionsTitle, agent: agentScreen,
       headerHeight: conversationHeaderHeight, confirmationHeight: confirmationHeight,
       permissionPending: permissionPending, command: command?.id, commandName: commandName,
+      viewTitle: viewTitle,
       commandPlaceholder: commandPlaceholder, problem: command?.problem, busy: command?.busy == true,
       showsBusy: showsBusy, viewActions: viewActions,
       viewRow: viewRow,
       page: page, pageTurn: pageTurn, inDetail: inDetail, selectedTarget: selectedTarget,
+      focusedPageField: focusedPageField,
       offersActions: offersActions, returnsOnEscape: returnsOnEscape, askingAbout: askingAbout,
       returnAsksAgent: returnAsksAgent, askingName: askingName, awaitsPattern: awaitsPattern,
       refusesReturn: returnPlan() == .refuse)

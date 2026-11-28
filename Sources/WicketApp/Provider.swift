@@ -57,6 +57,7 @@ struct ProviderRequest: Codable, Sendable, Equatable {
 /// after the body on a page) and `actions` for the header. At least one of body and items is present on
 /// the wire, unless the view consists of page fields.
 struct ProviderView: Codable, Sendable, Equatable {
+  var title: String?
   var body: String?
   var items: [Row]
   var actions: [RowAction]
@@ -78,8 +79,9 @@ struct ProviderView: Codable, Sendable, Equatable {
 
   init(
     body: String? = nil, items: [Row] = [], actions: [RowAction] = [], back: [String: String]? = nil,
-    fields: [Field]? = nil
+    fields: [Field]? = nil, title: String? = nil
   ) {
+    self.title = title
     self.body = body
     self.fields = fields
     self.items = items
@@ -107,7 +109,7 @@ struct ProviderView: Codable, Sendable, Equatable {
       field = try? Field(from: decoder)
     }
   }
-  private enum CodingKeys: String, CodingKey { case body, items, actions, back, fields }
+  private enum CodingKeys: String, CodingKey { case body, items, actions, back, fields, title }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     let body = try c.decodeIfPresent(String.self, forKey: .body)
@@ -132,7 +134,8 @@ struct ProviderView: Codable, Sendable, Equatable {
     self.init(
       body: body, items: items ?? [],
       actions: try c.decodeIfPresent([RowAction].self, forKey: .actions) ?? [],
-      back: try c.decodeIfPresent([String: String].self, forKey: .back), fields: fields
+      back: try c.decodeIfPresent([String: String].self, forKey: .back), fields: fields,
+      title: try c.decodeIfPresent(String.self, forKey: .title)
     )
   }
 }
@@ -142,6 +145,7 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
   let id: String
   let title: String
   var subtitle: String?
+  var tone: ActionTone?
   /// An SF Symbol name or, for an extension, a PNG or SVG path.
   var icon: String?
   var actions: [RowAction]
@@ -159,11 +163,13 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
 
   init(
     id: String, title: String, subtitle: String? = nil, icon: String? = nil, actions: [RowAction],
-    keywords: [String]? = nil, prominent: Bool? = nil, detail: String? = nil, picture: URL? = nil
+    keywords: [String]? = nil, prominent: Bool? = nil, detail: String? = nil, picture: URL? = nil,
+    tone: ActionTone? = nil
   ) {
     self.id = id
     self.title = title
     self.subtitle = subtitle
+    self.tone = tone
     self.icon = icon
     self.actions = actions
     self.keywords = keywords
@@ -172,7 +178,7 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
     self.picture = picture
   }
   private enum CodingKeys: String, CodingKey {
-    case id, title, subtitle, icon, actions, keywords, prominent, detail
+    case id, title, subtitle, icon, actions, keywords, prominent, detail, tone
   }
   /// The one rule for a list of items, in a view or a manifest: ids nonempty and unique.
   static func validIDs(_ rows: [Row]) -> Bool {
@@ -282,6 +288,10 @@ struct Address: Codable, Sendable, Equatable {
   }
 }
 
+enum ActionTone: String, Codable, Sendable {
+  case destructive
+}
+
 /// What Return, a button or a menu item does. Every row carries one, including the host's own, so one
 /// dispatcher serves all of them and a row's ID is only its identity. An optional `title` names it in
 /// menus in place of the kind's own label.
@@ -317,10 +327,12 @@ struct RowAction: Codable, Sendable, Equatable {
   }
   var kind: Kind
   var title: String?
+  var tone: ActionTone?
 
-  init(_ kind: Kind, title: String? = nil) {
+  init(_ kind: Kind, title: String? = nil, tone: ActionTone? = nil) {
     self.kind = kind
     self.title = title
+    self.tone = tone
   }
   static func open(_ url: URL, title: String? = nil) -> Self { Self(.open(url), title: title) }
   static func copy(_ text: String, title: String? = nil) -> Self { Self(.copy(text), title: title) }
@@ -334,12 +346,13 @@ struct RowAction: Codable, Sendable, Equatable {
   }
 
   private enum CodingKeys: String, CodingKey {
-    case type, url, text, title, paste, concealed, setting, values
+    case type, url, text, title, paste, concealed, setting, values, tone
     case extensionName = "extension"
   }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     title = try c.decodeIfPresent(String.self, forKey: .title)
+    tone = try c.decodeIfPresent(ActionTone.self, forKey: .tone)
     let type = try c.decode(String.self, forKey: .type)
     switch type {
     case "open":
@@ -368,6 +381,7 @@ struct RowAction: Codable, Sendable, Equatable {
   func encode(to encoder: any Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encodeIfPresent(title, forKey: .title)
+    try c.encodeIfPresent(tone, forKey: .tone)
     switch kind {
     case .open(let url):
       try c.encode("open", forKey: .type)

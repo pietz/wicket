@@ -136,11 +136,13 @@ A JSON view contains `body`, `items`, or a nonempty `fields` array. It can also 
 ```
 
 - **Items only:** Native list; the only shape whose rows appear directly at the root from a `match`.
-- **Page:** `body` supplies Markdown and body tags, and `fields` declares optional controls. A view with only `fields` also opens a page. The native header shows the command name and view `actions`.
+- **Page:** `body` supplies Markdown and body tags, and `fields` declares optional controls. A view with only `fields` also opens a page. The native header shows the view title and actions. A single action appears as a button with its own label. Multiple actions are available through the Actions button.
 - **Page + items:** Items render after the body and any appended controls as native-styled rows. Pages start unselected. With nothing selected, Return asks the agent if input is unclaimed; otherwise submits (`submit:true`) or runs the first view-level action (live command). Keep confirmation-worthy actions on a labelled target, not the default Return action. A list-only view uses view `actions` only for a submitted `save` response.
 - **`back`:** Optional field override map (e.g. `"back":{"view":""}`) so Escape reruns the command unsubmitted with those overrides (omitted keys kept, `""` clears).
 
-**Item schema:** Required: nonempty unique `id`, `title`, `actions` array (may be empty). Optional: `subtitle`, [`icon`](#icons), `keywords`, `prominent:true` (calculator-sized first row), `detail` (Markdown + body tags). Keep IDs stable across updates so selection sticks. Return runs the first action; ⌘K and right-click list all actions (or view `actions` on an unselected page). Unknown action types, wrong types, missing required fields, and duplicate IDs fail; extra keys are ignored.
+An optional view `title` replaces the command name in the page header and in the footer for pages and lists.
+
+**Item schema:** Required: nonempty unique `id`, `title`, `actions` array (may be empty). Optional: `subtitle`, [`icon`](#icons), `keywords`, `prominent:true` (calculator-sized first row), `tone:"destructive"` (system red), `detail` (Markdown + body tags). Keep IDs stable across updates so selection sticks. Return runs the first action; ⌘K and right-click list all actions (or view `actions` on an unselected page). Unknown action types, wrong types, missing required fields, and duplicate IDs fail; extra keys are ignored.
 
 **`detail`:** Inside a list command, shows as a read-only side preview as arrows move (no request; keep titles short). On a page, Return opens the detail and ⌘K keeps the item's actions. Ignored at the root.
 
@@ -154,7 +156,7 @@ A JSON view contains `body`, `items`, or a nonempty `fields` array. It can also 
 [{"type":"open","url":"https://example.com"},{"type":"reveal","url":"file:///Users/me/Documents/report.pdf"},{"type":"copy","text":"hello"},{"type":"paste","text":"hello"},{"type":"run","title":"Delete","action":"delete","fields":{"id":"42"}},{"type":"agent","text":"Explain this result"}]
 ```
 
-Optional `title` names the action in ⌘K and menus (defaults to action kind; `run` defaults to "Run" for self, "Open" for another extension—always title meaningful `run` actions).
+Optional `tone:"destructive"` marks an action in system red. Optional `title` names the action in the page header, ⌘K and menus (defaults to action kind; `run` defaults to "Run" for self, "Open" for another extension—always title meaningful `run` actions).
 
 - **`run`:** Submits a request to a target. Optional: `extension` (folder name; defaults to self; never name a folder `agent`, `settings`, `clipboard`, or `history`), `input`, `fields`, `action`, `hidden`, `promptIfEmpty`. Within the open command, `fields` merges by name (omitted kept, `""` clears); in another command, fields start empty. Main text uses the text field name or `input` (field name wins).
   - `"hidden":true`: hides Wicket immediately so the previous app keeps focus; print nothing on success. Printing a failure or a view with `body`/`items` opens Wicket on the command (or shows its first line if open). Visible runs must print a view.
@@ -176,7 +178,7 @@ Markdown with Wicket tags (same language as agent answers):
   - `<tile label="Tue" icon="cloud.rain" title="10° 7°"/>` (boxed item).
   - `<progress label="Done" value="7 of 10" percent="70"/>` and `<badge label="Ready" tone="positive"/>` (`positive`/`warning`/`negative`). Self-closing, no detail.
 - **Containers:** `<columns>` places tiles, cards, or charts side by side; `<card icon="…">## Title …</card>` draws a raised box. Soft line breaks inside both become hard breaks.
-- **Item actions** use at most one of `open`, `copy`, `copy-body`, `ask`, or (in extension output only) `run="action-name?k=v"`, titled by `action="…"`. Multiple action attributes or a refused `open` drop the item. Percent-encode separators in `run` action names and field values. Items with an action or detail require `title`. Return normally opens the detail if present, with any action at its end.
+- **Item actions** use at most one of `open`, `copy`, `copy-body`, `ask`, or (in extension output only) `run="action-name?k=v"`, titled by `action="…"`. A row can set `tone="destructive"` to mark its title and its action in system red. Multiple action attributes or a refused `open` drop the item. Percent-encode separators in `run` action names and field values. Items with an action or detail require `title`. Return normally opens the detail if present, with any action at its end.
 - Use `<row title="Copy report" copy-body="true">…</row>` to make Copy the Return action, with both Copy and Show details in ⌘K. It copies the Markdown source between the tags, trimmed of surrounding whitespace. `copy-body` requires the value `true` and a nonempty body. In a streamed reply, the action becomes available after the reply ends and the closing tag is parsed outside code. If the closing tag is missing, the draft is shown as Markdown without a copy action.
 - Most tags accept up to 4,096 UTF-8 bytes. Chart openings can carry longer category lists within the chart limits below. Right-align numeric table columns with `---:`. Closed fenced code blocks get a copy button, and long code lines wrap. Keep actions where their content stands. Unsupported tags render as literal text. Escape `<` as `&lt;` in external text or use backticks.
 - Pages draw native controls and selectable text. JavaScript runs only in extension programs. Markdown images are omitted, and pages fetch no remote resources. Wicket handles clicked links. JSON items may use extension icon files as described above.
@@ -206,15 +208,21 @@ Declare controls in the view's JSON `fields` array. Use a self-closing `<field n
 {"body":"# Chart\n<field name=\"opacity\"/>","fields":[{"name":"opacity","type":"number","description":"Opacity","min":0,"max":100,"step":5,"value":75,"action":"set-opacity"},{"name":"grid","type":"bool","default":true}]}
 ```
 
-- A page field needs only `name` and `type` when its type needs no additional data. Names match `[A-Za-z][A-Za-z0-9_.-]{0,63}`. The label uses `placeholder`, then `description`, then `name`.
-- A `bool` draws a switch. A `number` draws a slider and requires both bounds, with `step` defaulting to `1`. A `choice` with up to four options draws a segmented control. Five or more options draw a pop-up menu. Text entry belongs in the search bar.
-- Return the current `value` with each view. Without it, Wicket uses `default`, then `false` for a switch, `min` for a slider, or the first option for a choice.
+- A page field needs only `name` and `type` when its type needs no additional data. Names match `[A-Za-z][A-Za-z0-9_.-]{0,63}`.
+- A `bool` draws a switch. A `number` with both bounds and at most 100 steps draws a slider with its current value. For this calculation, the step defaults to `1`. A `number` missing either bound or with more than 100 steps draws a text field. Text entry accepts any finite number that satisfies the supplied bounds and explicit step.
+- A `choice` draws a segmented control when it has at most four options and the labels fit the row. Otherwise it draws a pop-up.
+- A `text` draws a single-line field. For both kinds of text entry, `label` names the field, `placeholder` is the hint inside it, and `description` is help below the label. With no `label`, the description or field name serves as the label. Other controls use `label`, `placeholder`, `description`, or the name as their label, in that order.
+- Return the current `value` with each view. Without it, Wicket uses `default`, then blank for text entry, `false` for a switch, `min` for a slider, or the first option for a choice.
 
-Wicket drops invalid declarations, duplicate declaration names, and names that collide with the manifest's search-bar fields. An undeclared marker is dropped, and a repeated marker places its control once. Markers accept only a field name for placement. Agent answers, item details, list previews, and streaming content show no controls.
+Wicket drops invalid declarations, duplicate declaration names, hidden and multiline fields, and names that collide with the manifest's search-bar fields. An undeclared marker is dropped, and a repeated marker places its control once. Markers accept only a field name for placement. Agent answers, item details, list previews, and streaming content show no controls.
 
-`run` overrides targeting a visible canvas field are validated—an invalid override rejects the action and keeps current values. By default, changes rerun live commands with `submitted:false`; `submit:true` commands keep local edits until submitted (add a target like `<row title="Submit" run="submit"/>` when there is no search-bar text field). On request failure, retries/reruns keep last canvas values (explicit overrides take precedence) until a new form arrives.
+Set `"action":true` to submit the one-shot action `set-<name>` on commit, or supply an action name such as `"action":"set-opacity"`. The submitted request carries the new value in `fields[name]`. Slider drag previews unsubmitted in live commands and submits on release. With an action, a text field commits on Return or when the user leaves it. Clearing it sends its default, or an empty string if it has no default. Invalid numbers show an inline message and aren't sent. Gate effects on the submitted action name and validate its value, including for headless requests. Submitted page changes run serially, coalescing queued updates to the same field and preserving local edits and scroll position.
 
-Set `"action":true` to submit the one-shot action `set-<name>` on commit, or supply an action name such as `"action":"set-opacity"`. The submitted request carries the new value in `fields[name]`. Slider drag previews unsubmitted in live commands and submits on release. Gate effects on the submitted action name and validate its value, including for headless requests. Submitted page changes run serially (queued updates to the same field coalesce in place; different fields keep order), preserving local edits and scroll position. Arrow keys navigate fields; Return toggles switches, steps sliders, or cycles choices.
+A text field without an action is a draft. A page with drafts is a form. Its first draft gets the caret on arrival. Changes to controls without actions stay local on forms and travel in `fields` with the next submitted action. Declare a view action such as `{"type":"run","title":"Save","action":"save"}` to give Return a default in a form. Invalid numeric drafts must be fixed before submission. Outside forms, changes to controls without actions rerun live commands unsubmitted and stay local in `submit:true` commands.
+
+Up and Down select targets. Return toggles a switch, steps a slider, cycles a choice, or enters a text field. With the search field empty, Left and Right step a selected slider or choice without wrapping, or turn a switch off or on. Tab and Shift-Tab move through the search bar and text fields in reading order. Escape lets the input method cancel its composition first, then restores the value from before the edit and leaves the field. The next Escape goes back.
+
+A `run` override targeting a visible canvas field is validated. An invalid override rejects the action and keeps current values. On request failure, retries and reruns retain the last canvas values until a new form arrives. Explicit overrides take precedence.
 
 ## What a good page looks like
 
@@ -419,7 +427,7 @@ Spell `hotkeys` like `hotkey`, one entry per address. `item=<id>` addresses a ma
 
 Failure output is the repair brief: edit the extension folder and the next request runs the new files. Never add approval files or trust settings. (`config.json` lives in the working folder, so an agent permitted to edit it can change `agent.mode`.)
 
-This contract is rewritten on every launch. Optional examples live in `examples/` (`agenda`: 7-day `.ics` page with details; `canvas-controls`: canvas switches, slider, choice), copied only when absent—copy one into `extensions/` to enable. Read them and the bundled extensions before authoring. Do not modify other extensions unasked.
+This contract is rewritten on every launch. Optional examples live in `examples/` (`agenda`: 7-day `.ics` page with details; `canvas-controls`: canvas switches, slider, choices, text settings, and a form), copied only when absent—copy one into `extensions/` to enable. Read them and the bundled extensions before authoring. Do not modify other extensions unasked.
 
 ## Testing with the real pipeline
 

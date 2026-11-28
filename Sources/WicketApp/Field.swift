@@ -62,6 +62,7 @@ struct Field: Codable, Sendable, Equatable {
 
   let name: String
   let type: Kind
+  var label: String?
   var description: String?
   var placeholder: String?
   var options: [Option]?
@@ -83,16 +84,17 @@ struct Field: Codable, Sendable, Equatable {
   }
 
   private enum CodingKeys: String, CodingKey {
-    case name, type, description, placeholder, options, `default`, optional, multiline, hidden,
+    case name, type, label, description, placeholder, options, `default`, optional, multiline, hidden,
       min, max, step, value, action
   }
 
   init(
-    name: String, type: Kind, description: String? = nil, options: [Option]? = nil,
+    name: String, type: Kind, label: String? = nil, description: String? = nil, options: [Option]? = nil,
     min: Double? = nil, max: Double? = nil, step: Double? = nil, value: String? = nil, action: Action? = nil
   ) {
     self.name = name
     self.type = type
+    self.label = label
     self.description = description
     self.options = options
     self.min = min
@@ -106,6 +108,7 @@ struct Field: Codable, Sendable, Equatable {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     name = try c.decode(String.self, forKey: .name)
     type = try c.decode(Kind.self, forKey: .type)
+    label = try c.decodeIfPresent(String.self, forKey: .label)
     description = try c.decodeIfPresent(String.self, forKey: .description)
     placeholder = try c.decodeIfPresent(String.self, forKey: .placeholder)
     options = try c.decodeIfPresent([Option].self, forKey: .options)

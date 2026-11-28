@@ -156,7 +156,7 @@ enum CommandOutcome {
     if submitting, !replacingFields,
       let invalid = overrides.first(where: { name, value in
         guard let field = page?.fields[name] else { return false }
-        return field.definition.canonical(value) == nil
+        return field.canonical(value) == nil
       })
     {
       return invalid.key
@@ -192,10 +192,14 @@ enum CommandOutcome {
     return nil
   }
 
-  func request() -> CommandScreenRequest {
+  func request(includeDrafts: Bool = true) -> CommandScreenRequest {
     var fields = screen.fields
     if next != .address, !replacingFields {
-      fields.merge(page?.fields.mapValues(\.value) ?? failedCanvasValues) { _, canvas in canvas }
+      var canvas = page?.fields.mapValues(\.value) ?? failedCanvasValues
+      if !includeDrafts, let page, page.fields.values.contains(where: \.isDraft) {
+        for field in page.fields.values where field.action == nil { canvas[field.name] = nil }
+      }
+      fields.merge(canvas) { _, value in value }
     }
     if let field = descriptor?.inputField { fields[field.name] = providerInput.isEmpty ? nil : providerInput }
     return CommandScreenRequest(
@@ -205,7 +209,7 @@ enum CommandOutcome {
 
   /// Keeps the latest local edit visible and stages only the work this control calls for.
   mutating func edit(_ change: Page.Control.Change) -> Bool {
-    guard let field = page?.fields[change.name], let value = field.definition.canonical(change.value) else {
+    guard let field = page?.fields[change.name], let value = field.canonical(change.value) else {
       return false
     }
     if change.phase == .preview {
@@ -222,10 +226,16 @@ enum CommandOutcome {
           fieldChange: change))
       // The submitted value also answers this field's last deferred preview.
       if pendingChange?.name == change.name { pendingChange = nil }
-    } else if descriptor?.submits == false {
+    } else if descriptor?.submits == false,
+      field.action != nil || page?.textFields.contains(where: \.isDraft) != true
+    {
       pendingChange = change
     }
     return true
+  }
+
+  mutating func markInvalid(_ name: String, text: String) {
+    page?.markInvalid(name, text: text)
   }
 
   mutating func enqueue(_ request: CommandScreenRequest) {
@@ -253,12 +263,19 @@ enum CommandOutcome {
       return (request, false)
     }
     guard pendingChange != nil || pendingRefresh != nil else { return nil }
-    var request = request()
+    var request = request(includeDrafts: false)
     request.fieldChange = pendingChange
     let typed = pendingChange == nil && pendingRefresh == true
     pendingChange = nil
     pendingRefresh = nil
     return (request, typed)
+  }
+
+  var pendingTextSaves: [CommandScreenRequest] {
+    submissions.filter { request in
+      guard let name = request.fieldChange?.name else { return false }
+      return page?.fields[name]?.isText == true
+    }
   }
 
   mutating func discardPending() {
@@ -273,7 +290,13 @@ enum CommandOutcome {
     action = nil
     replacingFields = false
     if let request {
-      canvasEdits = canvasEdits.filter { $0.value != request.fields[$0.key] }
+      let keepsDrafts =
+        (request.cause == .rerun || request.fieldChange != nil)
+        && page?.textFields.contains(where: \.isDraft) == true
+      canvasEdits = canvasEdits.filter { name, value in
+        if keepsDrafts, let field = page?.fields[name], field.action == nil { return true }
+        return value != request.fields[name]
+      }
     }
   }
   /// A process answers it.
@@ -302,6 +325,7 @@ enum CommandOutcome {
   mutating func show(
     _ view: ProviderView, page: Page?, for request: CommandScreenRequest, turn: String, remembered: Bool
   ) {
+    let previous = self.turn == turn ? self.page : nil
     self.turn = turn
     shown = Shown(view: view, input: request.input, fields: request.fields)
     if remembered { context = shown }
@@ -309,10 +333,13 @@ enum CommandOutcome {
     failedCanvasValues.removeAll()
     canvasCleared = false
     // Edits still waiting for an explicit submit survive another field's reply.
-    canvasEdits = canvasEdits.filter { name, value in page?.fields[name]?.definition.canonical(value) != nil }
+    canvasEdits = canvasEdits.filter { name, value in page?.fields[name]?.canonical(value) != nil }
     for (name, value) in canvasEdits { self.page?.fill(name, with: value) }
     if let page {
-      for name in page.fields.keys { screen.fill(name, with: "") }
+      for name in page.fields.keys {
+        screen.fill(name, with: "")
+        self.page?.markInvalid(name, text: previous?.fields[name]?.invalidText)
+      }
     }
     problem = nil
     stop()

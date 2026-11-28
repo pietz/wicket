@@ -10,6 +10,13 @@ struct PageContext: Equatable, Sendable {
   var width = PaletteLayout.pageWidth
   var revision = ""
   var turn = ""
+  var focusedField: String?
+  enum TextEvent {
+    case focus
+    case edit(String)
+    case blur
+  }
+  var text: @MainActor (String, TextEvent) -> Void = { _, _ in }
   var open: @MainActor (URL) -> Void = { _ in }
   var click: @MainActor (String) -> Void = { _ in }
   var change: @MainActor (Page.Control.Change) -> Void = { _ in }
@@ -18,7 +25,7 @@ struct PageContext: Equatable, Sendable {
 
   static func == (a: Self, b: Self) -> Bool {
     a.scale == b.scale && a.rowHeight == b.rowHeight && a.width == b.width
-      && a.revision == b.revision && a.turn == b.turn
+      && a.revision == b.revision && a.turn == b.turn && a.focusedField == b.focusedField
   }
 
   func size(_ points: CGFloat) -> CGFloat { points * scale }
@@ -54,7 +61,8 @@ struct PageBody: View {
       if let picture = document.picture {
         PagePicture(url: picture, spacing: context.size(16), loadsImage: lazy)
       }
-      PageBlocks(blocks: document.blocks, lazy: lazy)
+      // Keep the field editor mounted when the scroll view moves it out of view.
+      PageBlocks(blocks: document.blocks, lazy: lazy && !document.hasTextFields)
     }
     .font(context.body)
     .lineHeight(PageMetrics.lineHeight(PageMetrics.body))
@@ -84,7 +92,11 @@ struct PageBlocks: View {
   }
 
   private var items: some View {
-    ForEach(Self.segments(blocks), id: \.lowerBound) { range in
+    let segments = Self.segments(blocks).map { range in
+      (id: Self.id(range.lowerBound, in: blocks, lazy: lazy), range: range)
+    }
+    return ForEach(segments, id: \.id) { segment in
+      let range = segment.range
       let index = range.lowerBound
       let previous = index > 0 ? blocks[index - 1] : nil
       SwiftUI.Group {
@@ -98,7 +110,7 @@ struct PageBlocks: View {
         .top,
         previous.map { context.size(Self.gap($0, blocks[index], boxed: boxed, tight: tight)) } ?? 0
       )
-      .id(Self.id(index, lazy: lazy))
+      .id(segment.id)
     }
   }
 
@@ -118,7 +130,10 @@ struct PageBlocks: View {
   }
 
   /// A block's scroll id: the page's own blocks are named apart from those nested in lists and boxes.
-  static func id(_ index: Int, lazy: Bool) -> String { lazy ? "page-block-\(index)" : "block-\(index)" }
+  static func id(_ index: Int, in blocks: [PageBlock], lazy: Bool) -> String {
+    if !lazy, let field = blocks[index].firstTextField { return "field-block-\(field)" }
+    return lazy ? "page-block-\(index)" : "block-\(index)"
+  }
 
   static func gap(_ previous: PageBlock, _ block: PageBlock, boxed: Bool, tight: Bool) -> CGFloat {
     if tight { return 4 }
@@ -281,7 +296,10 @@ private struct PageRows: View {
             Text(label).foregroundStyle(Ink.secondary).lineLimit(1)
               .frame(minWidth: context.size(PageMetrics.bodySize) * 3.4, alignment: .leading)
           }
-          if let title = item.title { Text(title).lineLimit(1).layoutPriority(1) }
+          if let title = item.title {
+            Text(title).lineLimit(1).layoutPriority(1)
+              .foregroundStyle(item.tone == ActionTone.destructive.rawValue ? Ink.destructive : Ink.primary)
+          }
           if let subtitle = item.subtitle { Text(subtitle).foregroundStyle(Ink.secondary).lineLimit(1) }
           Spacer(minLength: 8)
           if let value = item.value { Text(value).foregroundStyle(Ink.secondary).lineLimit(1).fixedSize() }
@@ -452,8 +470,15 @@ private struct PageFields: View {
     // In the rows' metrics, and selected as a row is, so arrowing from rows into fields reads as one list.
     VStack(spacing: 2) {
       ForEach(controls, id: \.name) { control in
-        HStack(spacing: 12) {
-          Text(control.label)
+        HStack(alignment: control.isText ? .top : .center, spacing: 12) {
+          VStack(alignment: .leading, spacing: 3) {
+            Text(control.label)
+            if control.isText, let description = control.definition.description, description != control.label
+            {
+              Text(description).font(context.small).foregroundStyle(Ink.secondary)
+            }
+          }
+          .padding(.top, control.isText ? 5 : 0)
           Spacer(minLength: 12)
           PageControl(control: control)
         }
@@ -480,40 +505,69 @@ private struct PageControl: View {
 
   var body: some View {
     switch control.control {
+    case .text:
+      VStack(alignment: .leading, spacing: 4) {
+        let focused = context.focusedField == control.name
+        SearchField(
+          text: control.text, edit: { context.text(control.name, .edit($0.text)) },
+          placeholder: control.definition.placeholder ?? "", size: context.size(14), focused: focused,
+          onFocus: { context.text(control.name, .focus) }, onBlur: { context.text(control.name, .blur) },
+          accessibilityName: control.label, preservesEditing: true
+        )
+        .id(context.turn)
+        .padding(.horizontal, 8).padding(.vertical, 5)
+        .background(Ink.surface, in: .rect(cornerRadius: 7))
+        .overlay {
+          RoundedRectangle(cornerRadius: 7)
+            .strokeBorder(focused ? Color.accentColor : Ink.primary.opacity(0.12), lineWidth: focused ? 2 : 1)
+        }
+        if let problem = control.problem {
+          Text(problem).font(context.small).foregroundStyle(Ink.destructive)
+        }
+      }
+      .frame(width: context.width * 0.45)
     case .toggle:
       Toggle(
         control.label, isOn: Binding(get: { control.value == "true" }, set: { commit($0 ? "true" : "false") })
       )
       .toggleStyle(.switch).labelsHidden()
     case .slider(let min, let max, let step):
-      Slider(
-        value: Binding(
-          get: { dragged ?? Field.number(control.value) ?? min },
-          set: {
-            dragged = $0
-            context.change(.init(name: control.name, value: Field.wire($0), phase: .preview))
-          }),
-        in: min...max, step: step,
-        onEditingChanged: { editing in
-          guard !editing, let dragged else { return }
-          self.dragged = nil
-          commit(Field.wire(dragged))
-        }
-      )
-      .frame(width: 180).labelsHidden().accessibilityLabel(control.label)
+      HStack(spacing: 10) {
+        Slider(
+          value: Binding(
+            get: { dragged ?? Field.number(control.value) ?? min },
+            set: {
+              guard let value = control.sliderValue(at: Int((($0 - min) / step).rounded())),
+                let number = Field.number(value)
+              else { return }
+              dragged = number
+              context.change(.init(name: control.name, value: value, phase: .preview))
+            }),
+          in: min...max, step: step,
+          onEditingChanged: { editing in
+            guard !editing, let dragged else { return }
+            self.dragged = nil
+            commit(Field.wire(dragged))
+          }
+        )
+        .frame(width: 180).labelsHidden().accessibilityLabel(control.label)
+        Text(dragged.map(Field.wire) ?? control.value)
+          .monospacedDigit().foregroundStyle(Ink.secondary).lineLimit(1)
+          .frame(minWidth: context.size(34), alignment: .trailing)
+          .accessibilityHidden(true)
+      }
     case .choice(let options):
       let selection = Binding(get: { control.value }, set: { commit($0) })
-      if options.count <= 4 {
-        Picker(control.label, selection: selection) {
-          ForEach(options, id: \.value) { Text($0.label).tag($0.value) }
+      let picker = Picker(control.label, selection: selection) {
+        ForEach(options, id: \.value) { Text($0.label).lineLimit(1).tag($0.value) }
+      }.labelsHidden()
+      ViewThatFits(in: .horizontal) {
+        if options.count <= 4 {
+          picker.pickerStyle(.segmented).fixedSize()
         }
-        .pickerStyle(.segmented).labelsHidden().fixedSize()
-      } else {
-        Picker(control.label, selection: selection) {
-          ForEach(options, id: \.value) { Text($0.label).tag($0.value) }
-        }
-        .labelsHidden().fixedSize()
+        picker.pickerStyle(.menu).frame(maxWidth: context.width * 0.52, alignment: .trailing)
       }
+      .frame(maxWidth: context.width * 0.56, alignment: .trailing)
     }
   }
 

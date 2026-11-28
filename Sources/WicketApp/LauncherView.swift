@@ -16,6 +16,9 @@ struct SearchField: NSViewRepresentable {
   var bleed: CGFloat = 0
   var focused = false
   var onFocus: () -> Void = {}
+  var onBlur: (() -> Void)?
+  var accessibilityName: String? = nil
+  var preservesEditing = false
   var register: (NSTextField) -> Void = { _ in }
   func makeCoordinator() -> Coordinator { Coordinator(text: text, edit: edit) }
   func makeNSView(context: Context) -> NSTextField {
@@ -45,16 +48,20 @@ struct SearchField: NSViewRepresentable {
   func updateNSView(_ field: NSTextField, context: Context) {
     context.coordinator.text = text
     context.coordinator.edit = edit
+    context.coordinator.onBlur = onBlur
     (field as? FocusReportingField)?.onFocus = onFocus
+    if field.font?.pointSize != size { field.font = .systemFont(ofSize: size) }
     field.placeholderString = placeholder
-    field.setAccessibilityLabel(placeholder)
-    context.coordinator.write(text, to: field)
+    field.setAccessibilityLabel(accessibilityName ?? placeholder)
+    if !preservesEditing || !focused || field.currentEditor() == nil {
+      context.coordinator.write(text, to: field)
+    }
     // Only a change takes the keys, so a button that Tab reached keeps them on later updates.
     if focused, !context.coordinator.focused, field.currentEditor() == nil, let window = field.window {
       window.makeFirstResponder(field)
       Self.moveCaretToEnd(of: field)
     }
-    context.coordinator.focused = focused
+    context.coordinator.focused = focused && field.window != nil
   }
   static func updateText(_ text: String, in field: NSTextField) {
     guard field.stringValue != text else { return }
@@ -88,6 +95,7 @@ struct SearchField: NSViewRepresentable {
     /// What the model shows, which an edit is made on.
     var text: String
     var edit: (InputEdit) -> Void
+    var onBlur: (() -> Void)?
     var focused = false
     /// A write that waits for an input method's composition: the field's text without the marked part
     /// and where that part is in it, and what the field was to show.
@@ -127,9 +135,18 @@ struct SearchField: NSViewRepresentable {
       SearchField.updateText(text, in: field)
       changedFrom = nil
     }
+    func controlTextDidEndEditing(_ notification: Notification) {
+      // Let AppKit finish transferring the shared editor before a save can redraw the page.
+      guard let onBlur else { return }
+      DispatchQueue.main.async { [weak self] in
+        guard self?.field?.currentEditor() == nil else { return }
+        onBlur()
+      }
+    }
     func controlTextDidChange(_ notification: Notification) {
       guard let field = notification.object as? NSTextField else { return }
-      // AppKit owns marked text and all composition keystrokes.
+      // Only the committed value belongs to the model.
+      guard (field.currentEditor() as? NSTextView)?.hasMarkedText() != true else { return }
       let value = field.stringValue
       let from = changedFrom
       defer {
@@ -347,7 +364,7 @@ struct LauncherView: View {
         let status =
           shown.voiceStatus
           ?? (agent.map { $0.footer }
-            ?? (shown.footerMessage ?? shown.commandName ?? "Wicket"))
+            ?? (shown.footerMessage ?? shown.viewTitle ?? shown.commandName ?? "Wicket"))
         // A running turn's elapsed time takes the status's place, which says how the turn ended once it has.
         if status.isEmpty, panel?.isShown == true, let agent, agent.busy, let timing = agent.turnTiming,
           timing.ending == nil
@@ -455,7 +472,7 @@ struct LauncherView: View {
       .overlay {
         SearchField(
           text: text, edit: { input.edit($0) }, placeholder: placeholder, bleed: 6,
-          focused: navigator.focusedField == nil,
+          focused: navigator.focusedField == nil && shown.focusedPageField == nil,
           onFocus: { if navigator.focusedField != nil { navigator.focusedField = nil } },
           // The native panel, weakly: the controller owns this view, so capturing it would keep both alive.
           register: { [weak native = panel?.panel] in native?.field = $0 })
@@ -547,6 +564,10 @@ struct LauncherView: View {
         .font(.system(size: 14 * textSize.scale)).lineLimit(1)
       } else {
         Text(result.row.title).font(.system(size: 14 * textSize.scale)).lineLimit(1)
+          .foregroundStyle(
+            (result.row.tone ?? result.row.actions.first?.tone) == .destructive
+              ? Ink.destructive : Ink.primary
+          )
           .layoutPriority(
             1)
         // Beside a detail the list is narrow, and the detail says more.
@@ -561,7 +582,7 @@ struct LauncherView: View {
           .lineLimit(1)
       }
       if recorder.target != nil, recorder.target == navigator.hotkeyTarget(of: result) {
-        Text(recorder.rejected ? "Add ⌘, ⌃ or ⌥ · Esc cancels" : "Press a shortcut · Esc cancels")
+        Text(recorder.rejected ? "Add ⌘, ⌃ or ⌥ · Esc cancels" : "Press a shortcut · ⌫ removes · Esc cancels")
           .font(.system(size: 13 * textSize.scale)).foregroundStyle(Ink.secondary).lineLimit(1)
       } else if let hotkey = navigator.hotkey(of: result) {
         Text(hotkey.symbols).font(.system(size: 13 * textSize.scale)).foregroundStyle(Ink.tertiary)
@@ -582,7 +603,7 @@ struct LauncherView: View {
     .onTapGesture { if navigator.click(result.id) { navigator.runRow(result) } }
     .contextMenu {
       ForEach(Array(navigator.actions(of: result).enumerated()), id: \.offset) { _, action in
-        Button(action.label) {
+        Button(action.label, role: action.tone == .destructive ? .destructive : nil) {
           navigator.runRow(result, action: action)
         }
       }
@@ -597,13 +618,17 @@ struct LauncherView: View {
   private var extensionContent: some View {
     VStack(spacing: 0) {
       HStack {
-        Text(shown.commandName ?? "Extension").font(.system(size: 13, weight: .medium))
+        Text(shown.viewTitle ?? shown.commandName ?? "Extension").font(.system(size: 13, weight: .medium))
           .lineLimit(1)
         Spacer()
         if shown.showsBusy { ProgressView().controlSize(.small) }
         if let error = shown.problem {
           Button("Copy") { Pasteboard.write(error) }
           Button("Ask agent") { navigator.send(error) }
+        } else if shown.viewActions.count == 1, let action = shown.viewActions.first {
+          Button(action.label) { navigator.run(action, fromView: true) }
+            .buttonStyle(.bordered).controlSize(.small)
+            .foregroundStyle(action.tone == .destructive ? Ink.destructive : Ink.primary)
         } else if !shown.viewActions.isEmpty {
           Button("Actions") { navigator.toggleActions(shown.viewRow) }
         }
@@ -793,6 +818,7 @@ enum Ink {
   )
   static let tertiary = primary.opacity(0.5)
   static let selection = Color(nsColor: selectionColor)
+  static let destructive = Color(nsColor: .systemRed)
   static let surface = Color(nsColor: surfaceColor)
   /// A selected row, on the list and on pages.
   static let selectionColor = adaptive(

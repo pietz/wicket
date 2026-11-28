@@ -6,6 +6,7 @@ enum PaletteKeyAction: Equatable, Sendable {
   case actions
   case permission(Bool)
   case move(Int)
+  case step(Int)
   /// Tab into a root text field or Tab and Shift+Tab between the input and argument slots.
   case focus(Int)
   case edit(Edit)
@@ -30,6 +31,8 @@ enum PaletteKeyAction: Equatable, Sendable {
       switch keyCode {
       case 53: return .dismiss
       case 36, 76: return .run
+      case 123: return permissionPending ? .passThrough : .step(-1)
+      case 124: return permissionPending ? .passThrough : .step(1)
       case 125: return .move(1)
       case 126: return .move(-1)
       default: break

@@ -4,7 +4,7 @@ import Testing
 
 @Test(arguments: [
   (53, PaletteKeyAction.dismiss), (36, .run), (76, .run), (125, .move(1)), (126, .move(-1)),
-  (0, .passThrough), (51, .passThrough), (123, .passThrough), (124, .passThrough),
+  (0, .passThrough), (51, .passThrough), (123, .step(-1)), (124, .step(1)),
 ])
 func plainKeys(code: Int, action: PaletteKeyAction) {
   #expect(
@@ -13,7 +13,7 @@ func plainKeys(code: Int, action: PaletteKeyAction) {
 }
 
 @Test func inputMethodsKeepEveryCompositionKey() {
-  for code in [53, 36, 76, 125, 126, 0] {
+  for code in [53, 36, 76, 123, 124, 125, 126, 48, 0] {
     for modifiers: Shortcut.Modifiers in [[], .command, .control, .option] {
       #expect(
         PaletteKeyAction.decide(

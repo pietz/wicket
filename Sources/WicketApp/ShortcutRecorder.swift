@@ -11,31 +11,25 @@ final class ShortcutRecorder {
   /// The binding `record` is recording, until it stops.
   private(set) var target: HotkeyTarget?
   @ObservationIgnored private var monitor: Any?
+  @ObservationIgnored private var onRecord: ((Shortcut) -> Void)?
+  @ObservationIgnored private var onRemove: (() -> Void)?
   @ObservationIgnored private var observers: [any NSObjectProtocol] = []
   @ObservationIgnored private var pause: (Bool) -> Void = { _ in }
 
   func start(
     in window: NSWindow? = NSApp.keyWindow, pausing pause: @escaping (Bool) -> Void,
-    onRecord: @escaping (Shortcut) -> Void
+    onRemove: (() -> Void)? = nil, onRecord: @escaping (Shortcut) -> Void
   ) {
     stop()
     isRecording = true
     self.pause = pause
     pause(true)
+    self.onRecord = onRecord
+    self.onRemove = onRemove
     monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
       let keyCode = Int(event.keyCode)
-      let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
-      MainActor.assumeIsolated {
-        guard let self else { return }
-        if keyCode == kVK_Escape, flags.isEmpty {
-          self.stop()
-        } else if let shortcut = Shortcut(keyCode: keyCode, modifiers: .init(flags)) {
-          self.stop()
-          onRecord(shortcut)
-        } else {
-          self.rejected = true
-        }
-      }
+      let modifiers = Shortcut.Modifiers(event.modifierFlags)
+      MainActor.assumeIsolated { self?.keyPressed(keyCode, modifiers: modifiers) }
       return nil
     }
     observers = [
@@ -51,11 +45,27 @@ final class ShortcutRecorder {
     pausing pause: @escaping (Bool) -> Void
   ) {
     store.rejection = nil
-    start(in: window, pausing: pause) { keys in
+    let remove: (() -> Void)? = target.map { target in { store.bind(nil, to: target) } }
+    start(in: window, pausing: pause, onRemove: remove) { keys in
       if let target { store.bind(keys, to: target) } else { store.setHotkey(keys) }
     }
     self.target = target
   }
+  func keyPressed(_ code: Int, modifiers: Shortcut.Modifiers) {
+    guard let onRecord else { return }
+    if code == kVK_Escape, modifiers.isEmpty {
+      stop()
+    } else if code == kVK_Delete, modifiers.isEmpty, let onRemove {
+      stop()
+      onRemove()
+    } else if let shortcut = Shortcut(keyCode: code, modifiers: modifiers) {
+      stop()
+      onRecord(shortcut)
+    } else {
+      rejected = true
+    }
+  }
+
   private func observe(_ name: Notification.Name, object: Any?) -> any NSObjectProtocol {
     NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated { self?.stop() }
@@ -68,6 +78,8 @@ final class ShortcutRecorder {
     for observer in observers { NotificationCenter.default.removeObserver(observer) }
     observers.removeAll()
     monitor = nil
+    onRecord = nil
+    onRemove = nil
     isRecording = false
     rejected = false
     target = nil

@@ -1,0 +1,153 @@
+{
+  "canvas-text-fields": {
+    "title": "Connection Preferences",
+    "body": "<field name=\"host\"/>\n<field name=\"port\"/>",
+    "fields": [
+      {
+        "name": "host",
+        "type": "text",
+        "label": "Server",
+        "description": "Host used for new connections",
+        "placeholder": "example.com",
+        "value": "sync.example.com",
+        "default": "localhost",
+        "action": true
+      },
+      {
+        "name": "port",
+        "type": "number",
+        "label": "Port",
+        "description": "Leave blank to use the default",
+        "placeholder": "443",
+        "min": 1,
+        "max": 65535,
+        "value": 8443,
+        "default": 443,
+        "action": true
+      }
+    ]
+  },
+  "canvas-text-invalid": {
+    "title": "Connection Preferences",
+    "body": "<field name=\"host\"/>\n<field name=\"port\"/>",
+    "fields": [
+      {
+        "name": "host",
+        "type": "text",
+        "label": "Server",
+        "description": "Host used for new connections",
+        "placeholder": "example.com",
+        "value": "sync.example.com",
+        "default": "localhost",
+        "action": true
+      },
+      {
+        "name": "port",
+        "type": "number",
+        "label": "Port",
+        "description": "Leave blank to use the default",
+        "placeholder": "443",
+        "min": 1,
+        "max": 65535,
+        "value": 8443,
+        "default": 443,
+        "action": true
+      }
+    ]
+  },
+  "canvas-form": {
+    "title": "Add Window Move",
+    "body": "<field name=\"title\"/>\n<field name=\"anchor\"/>\n<field name=\"width\"/>\n<field name=\"height\"/>\n<field name=\"keyword\"/>",
+    "fields": [
+      {
+        "name": "title",
+        "type": "text",
+        "label": "Title",
+        "placeholder": "Name this move",
+        "value": "Coding"
+      },
+      {
+        "name": "anchor",
+        "type": "choice",
+        "description": "Anchor",
+        "options": [
+          "Left",
+          "Center",
+          "Right"
+        ]
+      },
+      {
+        "name": "width",
+        "type": "number",
+        "label": "Width (%)",
+        "min": 10,
+        "max": 100,
+        "step": 0.01,
+        "value": 66.67
+      },
+      {
+        "name": "height",
+        "type": "number",
+        "label": "Height (%)",
+        "min": 10,
+        "max": 100,
+        "step": 0.01,
+        "value": 100
+      },
+      {
+        "name": "keyword",
+        "type": "text",
+        "label": "Keyword",
+        "placeholder": "Optional",
+        "optional": true
+      }
+    ],
+    "actions": [
+      {
+        "type": "run",
+        "title": "Save",
+        "action": "save"
+      }
+    ]
+  },
+  "canvas-control-details": {
+    "title": "Display Preferences",
+    "body": "<field name=\"brightness\"/>\n<field name=\"appearance\"/>\n<field name=\"scale\"/>\n\n<row title=\"Reset Display Preferences…\" tone=\"destructive\" run=\"reset\" action=\"Reset Preferences\">Restore the original display preferences.</row>",
+    "fields": [
+      {
+        "name": "brightness",
+        "type": "number",
+        "description": "Brightness",
+        "min": 0,
+        "max": 100,
+        "step": 5,
+        "value": 70,
+        "action": true
+      },
+      {
+        "name": "appearance",
+        "type": "choice",
+        "description": "Appearance",
+        "options": [
+          "Light",
+          "Dark",
+          "Auto"
+        ],
+        "value": "Auto",
+        "action": true
+      },
+      {
+        "name": "scale",
+        "type": "choice",
+        "description": "Scale",
+        "options": [
+          "More Room for Windows",
+          "Standard Display Scaling",
+          "Larger Text and Controls"
+        ],
+        "value": "Standard Display Scaling",
+        "action": true
+      }
+    ]
+  }
+}

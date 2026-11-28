@@ -48,7 +48,6 @@ Wicket implements an ACP v1 client in Swift (reusing `JSONLines`; no Node, no ne
 Unordered; scheduled after the steps above:
 
 - Add a **Run agent** entry in ⌘K, available even with no selection.
-- Add native text fields to pages. Verify Tab and ⇧Tab, Japanese IME, and caret preservation across page updates.
 - Add **Allow for this conversation** as a third agent permission option alongside Allow once and Don't allow.
 - Build a reusable verification harness for an unlocked Mac: launch Wicket Dev with a scratch config, open panel, drive keys, capture screenshots over light/dark/busy backgrounds, and quit cleanly.
 - Add a theme option to join the search pill and card into one glass shape (`tools/glass-lab`, ⌘J); separate stays default.

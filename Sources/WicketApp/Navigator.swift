@@ -272,7 +272,8 @@ final class Navigator {
   var viewRow: Result? {
     guard !conversing, let command, body != nil, !inDetail else { return nil }
     return Result(
-      provider: command.id, row: Row(id: "detail", title: commandName ?? "Details", actions: viewActions))
+      provider: command.id,
+      row: Row(id: "detail", title: viewTitle ?? commandName ?? "Details", actions: viewActions))
   }
   /// Whether ⌘K has more to offer than Return, for the footer.
   var offersActions: Bool { overlay == nil && actionSource.map { actions(of: $0).count > 1 } == true }
@@ -284,11 +285,13 @@ final class Navigator {
     let rows = actions(of: source).enumerated().map { index, action in
       Result(
         provider: "actions",
-        row: Row(id: String(index), title: action.label, icon: action.symbol, actions: [action]))
+        row: Row(
+          id: String(index), title: action.label, icon: action.symbol, actions: [action], tone: action.tone))
     }
     showActions(ActionPresentation(title: source.row.title, rows: rows, source: source))
   }
   private func showActions(_ panel: ActionPresentation) {
+    finishPageText()
     guard let first = panel.rows.first else { return }
     overlay = panel
     focusTarget = nil
@@ -387,6 +390,7 @@ final class Navigator {
   }
   /// Arrow keys: the first press enters the items under the input, and up from the first leaves them.
   func move(_ delta: Int) {
+    finishPageText()
     if delta > 0 { revealRootResults() }
     let rows = results
     guard !rows.isEmpty else { return }
@@ -425,6 +429,12 @@ final class Navigator {
   var body: String? { command?.body }
   /// The view's own actions, in the header beside the body.
   var viewActions: [RowAction] { command?.viewActions ?? [] }
+  var viewTitle: String? {
+    guard !conversing, !inDetail, command?.problem == nil else { return nil }
+    guard let title = command?.shown.view.title, !title.allSatisfy(\.isWhitespace) else { return nil }
+    return title
+  }
+  private var hasDraftFields: Bool { page?.textFields.contains(where: \.isDraft) == true }
   /// The open command's name, for the input placeholder and the footer.
   var commandName: String? { command?.descriptor?.name }
   private var agentOwnsCommandInput: Bool {
@@ -436,6 +446,7 @@ final class Navigator {
   }
   var returnAsksAgent: Bool {
     agentOwnsCommandInput && overlay == nil && selectedRow?.row.actions.first == nil
+      && !hasDraftFields
   }
   /// The open command or action prompt waits for Return.
   var submits: Bool { command?.submits == true }
@@ -443,8 +454,17 @@ final class Navigator {
   /// filled in as a submitted request, a page runs the view's own actions, and a conversation sends the
   /// follow-up.
   var selected: Result? {
+    if overlay == nil, let edit = pageTextEdit, let field = page?.fields[edit.name] {
+      if field.isDraft, !viewActions.isEmpty { return viewRow }
+      return Result(
+        provider: command?.id ?? "",
+        row: Row(
+          id: field.id, title: field.label,
+          actions: [RowAction(.field(field.name), title: field.isDraft ? "Done" : "Save")]))
+    }
     if let row = selectedRow { return row }
     if returnAsksAgent || !conversing && command?.runningAction == true { return nil }
+    if hasDraftFields, viewActions.count > 0 { return viewRow }
     guard !conversing, let submission = command?.submission() else { return viewRow }
     return submission
   }
@@ -501,7 +521,7 @@ final class Navigator {
     return (fields.filter { $0.name != bound }, nil)
   }
   var hasFieldNavigation: Bool {
-    guard command == nil else { return !fieldSlots.isEmpty }
+    guard command == nil else { return !fieldSlots.isEmpty || !pageFieldNames.isEmpty }
     let layout = rootFieldLayout
     return !layout.slots.isEmpty || layout.entry != nil
   }
@@ -537,19 +557,81 @@ final class Navigator {
   }
   /// A canvas event counts only on the command page that declared the control.
   func changeField(_ change: Page.Control.Change, turn: String) {
-    guard arriving == nil, !conversing, !inDetail, overlay == nil, turn == pageTurn,
-      command?.problem == nil, command?.edit(change) == true
-    else { return }
+    guard arriving == nil, !conversing, !inDetail, overlay == nil, turn == pageTurn else { return }
+    finishPageText()
+    guard turn == pageTurn, command?.problem == nil, command?.edit(change) == true else { return }
     pendingReturn = nil
     actionProblem = nil
     if command?.runningSubmission == true || !advanceCanvasWork() { draw() }
   }
+  private var pageFieldNames: [String] {
+    guard overlay == nil, arriving == nil else { return [] }
+    return page?.textFields.map(\.name) ?? []
+  }
+
+  private struct PageTextEdit {
+    let turn: String
+    let name: String
+    var text: String
+    var changed = false
+  }
+  private var pageTextEdit: PageTextEdit?
+  var focusedPageField: String? { pageTextEdit?.name }
+
+  func focusPageText(_ name: String, turn: String) {
+    guard turn == pageTurn, pageFieldNames.contains(name), pageTextEdit?.name != name else { return }
+    finishPageText()
+    guard turn == pageTurn, let field = page?.fields[name] else { return }
+    speech?.stop(.edit)
+    focusTarget = nil
+    pageTextEdit = PageTextEdit(turn: turn, name: name, text: field.text)
+    select(results.first { $0.row.id == field.id }?.id)
+    surface?.present(.selection, presentation)
+  }
+
+  func editPageText(_ name: String, to text: String, turn: String) {
+    guard let edit = pageTextEdit, edit.name == name, edit.turn == turn else { return }
+    pageTextEdit?.text = text.singleLineInput
+    pageTextEdit?.changed = true
+  }
+
+  func blurPageText(_ name: String, turn: String) {
+    guard pageTextEdit?.name == name, pageTextEdit?.turn == turn else { return }
+    finishPageText()
+  }
+
+  /// The AppKit field holds the live text. Only leaving it updates the page or sends a request.
+  private func finishPageText(cancel: Bool = false) {
+    guard let edit = pageTextEdit else { return }
+    pageTextEdit = nil
+    if !cancel, edit.changed, edit.turn == pageTurn, let field = page?.fields[edit.name] {
+      if field.canonical(edit.text) == nil {
+        command?.markInvalid(edit.name, text: edit.text)
+      } else if field.canonical(edit.text) != field.value || field.invalidText != nil {
+        changeField(.init(name: edit.name, value: edit.text, phase: .commit), turn: edit.turn)
+      }
+    }
+    draw()
+  }
+
+  /// Horizontal arrows belong to the search editor until it is empty.
+  func stepField(_ delta: Int) -> Bool {
+    guard input.isEmpty, focusedField == nil, focusedPageField == nil, overlay == nil, arriving == nil,
+      case .field(let name)? = selectedRow?.row.actions.first?.kind,
+      let field = page?.fields[name], !field.isText
+    else { return false }
+    let value = field.steppedValue(delta, wrapping: false)
+    if value != field.value { changeField(.init(name: name, value: value, phase: .commit), turn: pageTurn) }
+    return true
+  }
+
   /// The field slot that has the keyboard, by name; nil is the input. Only a declared name counts, so
   /// the input takes the keys back when the slots go away. A click into a field sets it too.
   var focusedField: String? {
     get { focusTarget.flatMap { name in fieldSlots.contains { $0.name == name } ? name : nil } }
     set {
       focusTarget = newValue
+      if newValue != nil { finishPageText() }
       if focusedField != nil { pickFieldRow() }
     }
   }
@@ -570,11 +652,16 @@ final class Navigator {
       focusTarget = command?.descriptor?.inputField?.name == field.name ? nil : field.name
       return true
     }
-    let names = [nil] + fieldSlots.map(\.name)
+    let names = [nil] + fieldSlots.map(\.name) + pageFieldNames
     guard names.count > 1 else { return false }
-    let index = names.firstIndex(of: focusedField) ?? 0
-    focusTarget = names[(index + delta + names.count) % names.count]
-    if focusTarget != nil { pickFieldRow() }
+    let index = names.firstIndex(of: focusedPageField ?? focusedField) ?? 0
+    let next = names[(index + delta + names.count) % names.count]
+    if let next, pageFieldNames.contains(next) {
+      focusPageText(next, turn: pageTurn)
+    } else {
+      finishPageText()
+      focusedField = next
+    }
     return true
   }
   /// Used by the native field, including paste and IME edits that arrive without a shortcut.
@@ -671,7 +758,27 @@ final class Navigator {
   }
   /// Return, a button or a menu item: the action chosen, else what Return does (`returnPlan`), from the
   /// row it belongs to. What is not the screens' goes to the panel.
-  func run(_ chosen: RowAction? = nil) {
+  func run(_ chosen: RowAction? = nil, fromView: Bool = false) {
+    var chosen = chosen
+    var fromView = fromView
+    if let edit = pageTextEdit {
+      let draft = page?.fields[edit.name]?.isDraft == true
+      finishPageText()
+      if chosen == nil {
+        guard draft, let submit = viewActions.first else { return }
+        chosen = submit
+        fromView = true
+      }
+    }
+    if let action = chosen ?? returnAction, case .run(let address) = action.kind, !address.link,
+      address.targetID == nil || address.targetID == command?.id,
+      let invalid = page?.textFields.first(where: {
+        $0.isDraft && $0.invalidText != nil && address.fields?[$0.name] == nil
+      })
+    {
+      focusPageText(invalid.name, turn: pageTurn)
+      return
+    }
     // What runs takes the input from dictation first, so a later transcript cannot rewrite it.
     speech?.stop(.run)
     let plan = chosen == nil ? returnPlan() : .run
@@ -686,8 +793,9 @@ final class Navigator {
       return
     }
     pendingReturn = nil
-    guard plan == .run, let (action, result) = pick(chosen), !activate(action, from: result) else { return }
-    performOnSurface(action, from: result, recording: true)
+    guard plan == .run, let (action, selected) = pick(chosen) else { return }
+    let result = fromView ? viewRow : selected
+    if !activate(action, from: result) { performOnSurface(action, from: result, recording: true) }
   }
 
   // MARK: Switching screens
@@ -722,6 +830,7 @@ final class Navigator {
   }
   /// The open command's running request.
   @ObservationIgnored private var tasks: [Task<Void, Never>] = []
+  @ObservationIgnored private var textSave: Task<Void, Never>?
   /// The busy state (Running…, the spinner) shows only once a request's process has run this long, so a
   /// quick answer replaces the screen without it flashing first, whether Return, a link or a hotkey asked.
   /// Waiting for dictation to settle does not count.
@@ -736,13 +845,31 @@ final class Navigator {
   func cancelWork(preservingPending: Bool = false) {
     if !preservingPending { pendingReturn = nil }
     generation += 1
+    if !preservingPending { finishTextSavesInBackground() }
     for task in tasks { task.cancel() }
     tasks.removeAll()
+    textSave = nil
     busyTimer?.cancel()
     ranLong = false
     search.cancel()
     command?.stop()
     if !preservingPending { command?.discardPending() }
+  }
+  /// A committed text setting also saves when a click takes the user out of the page.
+  private func finishTextSavesInBackground() {
+    guard let state = command else { return }
+    let queued = state.pendingTextSaves
+    guard textSave != nil || !queued.isEmpty else { return }
+    let running = textSave
+    tasks.removeAll { $0 == running }
+    let id = UUID()
+    hiddenRuns[id] = Task { [weak self] in
+      await running?.value
+      for request in queued {
+        if case .deferred(let perform) = state.behavior.work(for: request) { _ = await perform() }
+      }
+      self?.hiddenRuns[id] = nil
+    }
   }
   /// Stays on the current screen: a switch still waiting for its content is called off.
   private func stopArriving() {
@@ -789,6 +916,7 @@ final class Navigator {
     }
     let entering = arrival.command?.id != command?.id
     if entering, command == nil { base.fill([:]) }
+    pageTextEdit = nil
     command = arrival.command
     if entering || conversed { screen.startSelectionOver() }
     if command == nil { input = arrival.input }  // The command already has its input from the address.
@@ -817,7 +945,7 @@ final class Navigator {
     guard !conversing || arriving != nil else { return }
     let input = arriving?.input ?? self.input
     if let state = target {
-      let request = state.request()
+      let request = state.request(includeDrafts: state.next != .rerun)
       if state.runningSubmission, state.page?.fields.isEmpty == false, state.descriptor?.submits == false {
         target?.refreshAfterSubmission(typed: typed)
         return publish()
@@ -849,12 +977,15 @@ final class Navigator {
     let speaking = speech?.speaking == true
     cancelWork(preservingPending: true)
     target?.begin(request)
-    let turn = (request.fieldChange == nil ? nil : target?.turn) ?? UUID().uuidString
+    let keepsTurn =
+      request.fieldChange != nil || request.cause == .rerun && target?.page?.textFields.isEmpty == false
+    let turn = (keepsTurn ? target?.turn : nil) ?? UUID().uuidString
     // The user did not cause it by typing, so what it shows becomes its context.
     let remembered = !typed || request.cause != .rerun
     switch work {
     case .keepView: return
     case .unavailable(let problem):
+      pageTextEdit = nil
       target?.unavailable(problem)
       showArrival()
       sizeList()
@@ -867,32 +998,38 @@ final class Navigator {
       target?.run(request)
       let version = generation
       let visit = target?.visit
-      tasks.append(
-        Task { [weak self] in
-          if speaking, (try? await Task.sleep(for: .milliseconds(350))) == nil { return }
-          self?.timeBusy(version)
-          let outcome = await answered()
-          guard let self else { return }
-          // A newer request cancelled this one's timer and may have started its own.
-          if generation == version { busyTimer?.cancel() }
-          // Only the visit and the run that asked take what it was answered with.
-          @MainActor func current() -> Bool {
-            !Task.isCancelled && generation == version && target?.visit == visit
-          }
-          guard current() else { return }
-          if request.cause == .submission {
-            let problem: String? =
-              if case .problem(_, let summary) = outcome {
-                request.action.map { "\($0) failed. \(summary)" } ?? summary
-              } else { nil }
-            if advanceCanvasWork(after: problem) { return }
-          }
-          var page: Page?
-          if case .view(let view) = outcome {
-            page = target?.makePage(view)
-          }
-          accept(outcome, for: request, page: page, turn: turn, remembered: remembered)
-        })
+      let task = Task { [weak self] in
+        if speaking, (try? await Task.sleep(for: .milliseconds(350))) == nil { return }
+        if self?.generation == version { self?.timeBusy(version) }
+        let outcome = await answered()
+        guard let self else { return }
+        // A newer request cancelled this one's timer and may have started its own.
+        if generation == version { busyTimer?.cancel() }
+        // Only the visit and the run that asked take what it was answered with.
+        @MainActor func current() -> Bool {
+          !Task.isCancelled && generation == version && target?.visit == visit
+        }
+        guard current() else { return }
+        textSave = nil
+        if request.cause == .submission {
+          let problem: String? =
+            if case .problem(_, let summary) = outcome {
+              request.action.map { "\($0) failed. \(summary)" } ?? summary
+            } else { nil }
+          if advanceCanvasWork(after: problem) { return }
+        }
+        var page: Page?
+        if case .view(let view) = outcome {
+          page = target?.makePage(view)
+        }
+        accept(outcome, for: request, page: page, turn: turn, remembered: remembered)
+      }
+      tasks.append(task)
+      if let name = request.fieldChange?.name, request.cause == .submission,
+        target?.page?.fields[name]?.isText == true
+      {
+        textSave = task
+      }
       draw()
     }
   }
@@ -923,9 +1060,17 @@ final class Navigator {
       {
         saveEntry(setting, values: values, from: id)
       }
+      let previousTurn = pageTurn
       command?.show(view, page: page, for: request, turn: turn, remembered: remembered)
+      if previousTurn != turn {
+        pageTextEdit = nil
+        if let draft = page?.textFields.first(where: \.isDraft) { focusPageText(draft.name, turn: turn) }
+      } else if let edit = pageTextEdit, page?.fields[edit.name]?.isText != true {
+        pageTextEdit = nil
+      }
     case .problem(let problem, _):
       showArrival()
+      pageTextEdit = nil
       command?.fail(problem, remembered: remembered)
     case .restore(let run):
       restore(run)
@@ -1007,6 +1152,7 @@ final class Navigator {
       }
       return
     }
+    finishPageText()
     switch destination {
     case .settings:
       if let input = address.input, let destination = SettingsListDestination(path: input) {
@@ -1127,8 +1273,14 @@ final class Navigator {
     case .detail(let markdown, let action): openDetail(markdown, action: action, from: result)
     case .field(let name):
       if let field = page?.fields[name] {
-        let next = field.nextValue()
-        if next != field.value { changeField(.init(name: name, value: next, phase: .commit), turn: pageTurn) }
+        if field.isText {
+          focusPageText(name, turn: pageTurn)
+        } else {
+          let next = field.steppedValue()
+          if next != field.value {
+            changeField(.init(name: name, value: next, phase: .commit), turn: pageTurn)
+          }
+        }
       }
     case .hotkey(let target, record: false): store.bind(nil, to: target)
     case .grant(let permission, let address): grant(permission, then: address)
@@ -1179,6 +1331,7 @@ final class Navigator {
   /// conversation stays with its follow-up for when the panel shows again; anything else leaves the root
   /// with an empty input.
   func dismiss(now: Date = Date()) {
+    finishPageText()
     overlay = nil
     revealedRootList = false
     screen.startSelectionOver()
@@ -1187,6 +1340,7 @@ final class Navigator {
     // question's expiry (`reopen`).
     if !returnsOnEscape { base.fill([:]) }
     focusTarget = nil
+    pageTextEdit = nil
     agent.hidden(now: now)
     stopArriving()
     // Hiding stops a running command, also under a conversation.
@@ -1247,6 +1401,10 @@ final class Navigator {
     draw()
   }
   func escape() -> Bool {
+    if pageTextEdit != nil {
+      finishPageText(cancel: true)
+      return true
+    }
     focusTarget = nil
     if overlay != nil {
       closeActions()
@@ -1319,6 +1477,7 @@ final class Navigator {
   /// screen's work end, and the agent's screen opens with an empty input. Ending it refreshes the screen
   /// under it, and the root's draft is gone.
   private func converse(_ start: () -> Void) {
+    finishPageText()
     overlay = nil
     stopArriving()
     cancelWork()
@@ -1367,6 +1526,7 @@ final class Navigator {
   /// Cmd+Return: asks what is typed. With nothing typed it opens an empty question about what is on
   /// screen, which Escape leaves for exactly that screen again.
   func askAgent() {
+    finishPageText()
     closeActions()
     guard input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return send() }
     guard !conversing else { return }

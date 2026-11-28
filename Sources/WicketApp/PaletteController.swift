@@ -62,7 +62,7 @@ class PalettePanel: NSPanel {
       hasFields: target?.hasFields == true)
     if target?.handle(action) == true { return true }
     switch action {
-    case .passThrough, .focus: return false
+    case .passThrough, .focus, .step: return false
     case .edit(let edit):
       let selector: Selector =
         switch edit {
@@ -163,6 +163,13 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     renderer.onTarget = { [weak navigator] id, revision in
       navigator?.clickTarget(id, revision: revision)
     }
+    renderer.onText = { [weak navigator] name, event, turn in
+      switch event {
+      case .focus: navigator?.focusPageText(name, turn: turn)
+      case .edit(let value): navigator?.editPageText(name, to: value, turn: turn)
+      case .blur: navigator?.blurPageText(name, turn: turn)
+      }
+    }
     renderer.onFieldChange = { [weak self] change, turn in self?.navigator.changeField(change, turn: turn) }
     renderer.onFieldFocus = { [weak self] turn in
       guard let self, isOpen, turn == navigator.pageTurn, let field = panel.field else { return }
@@ -191,6 +198,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     case .actions: navigator.toggleActions()
     case .permission(let allow): navigator.decide(allow)
     case .move(let delta): navigator.move(delta)
+    case .step(let delta): return navigator.stepField(delta)
     case .focus(let delta): return navigator.moveFocus(delta)
     case .edit, .consume, .passThrough: return false
     }
@@ -201,6 +209,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   func present(_ change: PaletteChange, _ presentation: PalettePresentation) {
     let cardChanged = self.presentation.showsCard != presentation.showsCard
     if self.presentation != presentation { self.presentation = presentation }
+    renderer.focusedField = presentation.focusedPageField
     switch change {
     case .content:
       input.screensChanged()
@@ -295,7 +304,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       updateFooter(model.problem, voice: input.status)
     }
     panel.contentView?.layoutSubtreeIfNeeded()
-    if panel.canBecomeKey, let input = panel.field {
+    if panel.canBecomeKey, navigator.focusedPageField == nil, let input = panel.field {
       panel.makeFirstResponder(input)
       SearchField.moveCaretToEnd(of: input)
     }
