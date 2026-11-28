@@ -44,7 +44,7 @@ Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnly
 
 **Weather** shows current conditions and today's high and low when you type `weather Berlin`. Press Return for the full forecast.
 
-**Calendar** shows the next seven days from the calendars on this Mac (Calendar.app accounts), starting with the next meeting or the call that is on now. Type `calendar` or bind a hotkey. When a Google Meet, Zoom, Teams, or Webex call is on or starts within ten minutes, Return joins it, so the hotkey and Return get you into the meeting. Type to search titles, places, and calendars; Return on an event shows its time, calendar, place, links, and invitation notes. The first use asks for Calendar access. Hide calendars or all-day events in Settings ▸ Extensions ▸ Calendar, or ask the agent, which can also read your agenda.
+**Calendar** opens to a seven-day agenda from the calendars on this Mac (Calendar.app accounts), starting with the next meeting or the call that is on now. Type `calendar` or bind a hotkey. When a Google Meet, Zoom, Teams, or Webex call is on or starts within ten minutes, Return joins it, so the hotkey and Return get you into the meeting. Switch to **Week** for events on a time grid or **Month** for day counts. Open a day to see its events. Search for **Calendar Week** or **Calendar Month** at the root or bind either to a hotkey. Type to filter the current view by title, place, or calendar. Return on an event shows its time, calendar, place, links, and invitation notes. The first use asks for Calendar access. Hide calendars or all-day events in Settings ▸ Extensions ▸ Calendar, or ask the agent, which can also read your agenda.
 
 **Quicklinks** opens your bookmarks and site searches. Add them in Settings ▸ Extensions ▸ Quicklinks or ask the agent. Type `links` to browse, or a saved keyword with a query, such as `yt cats` after adding YouTube. Website icons appear after you first open their links. Sites without a cached icon show a globe. See the [Quicklinks recipe](Sources/WicketApp/Resources/extension-contract.md#quicklinks) for examples and hotkeys.
 
@@ -72,7 +72,7 @@ If an extension, hotkey, permission, or voice fails, ask the agent why. It can r
 
 Runs your local `claude` or `codex` CLI with your config and MCP servers—Wicket stores no credentials. Configure agent, model, effort, permission mode, speed, and streaming (on by default) in Settings ▸ Agent. On permission prompts, ⌘Return allows once and Escape declines.
 
-Replies render as keyboard-driven pages (rows, tiles, cards, charts, details, copyable code blocks). Asking from inside a command (⌘Return) passes its visible state as context.
+Replies render as keyboard-driven pages (rows, tiles, cards, charts, timelines, details, copyable code blocks). Asking from inside a command (⌘Return) passes its visible state as context.
 
 While the agent works, a light sweeps along the divider above the footer and dims as the reply starts streaming. With Reduce Motion, it stays in place and pulses. After three seconds, elapsed time appears in the footer's left corner.
 

@@ -173,7 +173,10 @@ private struct PageBlockView: View {
     case .card(let icon, let blocks): PageCard(icon: icon, blocks: blocks)
     case .columns(let blocks):
       let wide = blocks.contains { if case .tile = $0 { false } else { true } }
-      PageColumns(minimum: wide ? 200 : 72, spacing: context.size(8)) {
+      PageColumns(
+        minimum: wide ? 200 : 72, spacing: context.size(8),
+        rowSpacing: wide ? nil : context.size(5), most: wide ? Int.max : 7
+      ) {
         ForEach(blocks.indices, id: \.self) {
           PageBlocks(blocks: [blocks[$0]], boxed: true)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -181,6 +184,7 @@ private struct PageBlockView: View {
       }
     case .fields(let controls): PageFields(controls: controls)
     case .chart(let chart, let pending): NativeChart(chart: chart, pending: pending)
+    case .timeline(let timeline): NativeTimeline(timeline: timeline)
     }
   }
 }
@@ -228,21 +232,28 @@ private struct PageBadge: View {
 
 /// A box: a tile's, a card's, a code block's. Selected, it is filled exactly as a selected row is, so
 /// one selection reads the same on every part of the panel; its edge stays, so the box keeps its shape.
-private struct PageBox: ViewModifier {
+struct PageBox: ViewModifier {
   let selected: Bool
+  var tint: Color?
   @Environment(\.page) private var context
 
   func body(content: Content) -> some View {
     let shape = RoundedRectangle(cornerRadius: context.size(PageMetrics.cornerRadius), style: .continuous)
     content
-      .background(selected ? Ink.selection : Ink.surface, in: shape)
-      .overlay { shape.strokeBorder(.separator, lineWidth: 0.5) }
+      .background {
+        shape.fill(selected ? Ink.selection : Ink.surface)
+          .overlay { if !selected, let tint { shape.fill(tint.opacity(0.16)) } }
+      }
+      .overlay {
+        shape.strokeBorder(
+          tint?.opacity(0.7) ?? Color(nsColor: .separatorColor), lineWidth: tint == nil ? 0.5 : 1)
+      }
   }
 }
 
 /// An item's icon in the native row's 26-point frame: an extension's image, a file's own icon, or a
 /// symbol in grey.
-private struct PageIcon: View {
+struct PageIcon: View {
   let item: PageItem
   var size: CGFloat = 26
   @Environment(\.page) private var context
@@ -336,9 +347,10 @@ private struct PageTile: View {
     ViewThatFits(in: .horizontal) {
       wide.frame(
         minWidth: 150, idealWidth: 150, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-      narrow.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+      narrow.frame(minWidth: 84, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+      compact.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
-    .modifier(PageBox(selected: selected))
+    .modifier(PageBox(selected: selected, tint: item.tone == "accent" ? .accentColor : Ink.tone(item.tone)))
     .contentShape(.rect)
     .onTapGesture { if let target = item.target { context.click(target) } }
     .accessibilityElement(children: .combine)
@@ -389,6 +401,27 @@ private struct PageTile: View {
     .multilineTextAlignment(.center)
     .padding(.vertical, context.size(10)).padding(.horizontal, 4)
   }
+
+  private var compact: some View {
+    VStack(spacing: 1) {
+      if let label = item.label {
+        Text(label).font(.system(size: context.size(11), weight: .medium)).foregroundStyle(Ink.secondary)
+      }
+      HStack(spacing: 3) {
+        if item.icon != nil { PageIcon(item: item, size: context.size(13)) }
+        if let title = item.title {
+          Text(title).font(.system(size: context.size(13), weight: .semibold))
+        }
+      }
+      if let subtitle = item.subtitle { Text(subtitle).foregroundStyle(Ink.secondary) }
+      if let value = item.value { Text(value).foregroundStyle(Ink.secondary) }
+    }
+    .font(.system(size: context.size(11)))
+    .lineHeight(.multiple(factor: 1))
+    .lineLimit(1)
+    .padding(.vertical, 4).padding(.horizontal, 3)
+  }
+
 }
 
 /// Bars: the system's own, under their label and value. A lone bar takes the page's width; more share a

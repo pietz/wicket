@@ -44,6 +44,40 @@ func agendaWindow(now: Date, calendar: Calendar) -> DateInterval {
   return DateInterval(start: today, end: calendar.date(byAdding: .day, value: agendaDays, to: today)!)
 }
 
+enum CalendarLayout: String, CaseIterable {
+  case agenda, week, month
+
+  init(_ request: JSON?) {
+    self =
+      Self.readsAgenda(request)
+      ? .agenda
+      : request?["fields"]?["view"]?.string.flatMap(Self.init(rawValue:))
+        ?? .agenda
+  }
+
+  static func readsAgenda(_ request: JSON?) -> Bool {
+    request?["submitted"]?.isTrue == true && request?["action"]?.string == "read-agenda"
+  }
+
+  func window(now: Date, calendar: Calendar) -> DateInterval {
+    switch self {
+    case .agenda: agendaWindow(now: now, calendar: calendar)
+    case .week: calendar.dateInterval(of: .weekOfYear, for: now)!
+    case .month: calendar.dateInterval(of: .month, for: now)!
+    }
+  }
+
+  func control(label: String = "View") -> String {
+    let options = Self.allCases.map {
+      #"{"value":"\#($0.rawValue)","label":"\#($0.rawValue.capitalized)"}"#
+    }.joined(separator: ",")
+    return
+      #"{"name":"view","type":"choice","description":\#(quoted(label)),"value":"\#(rawValue)","options":[\#(options)]}"#
+  }
+
+  static let marker = #"<field name="view"/>"#
+}
+
 /// The agent's read without access: it fails, so the agent can tell it from an empty agenda.
 struct CalendarAccessDenied: Error, CustomStringConvertible {
   let description =
@@ -53,7 +87,7 @@ struct CalendarAccessDenied: Error, CustomStringConvertible {
 
 /// The view for one request: the agenda page, the agent's read, or a row saying why there is nothing.
 func calendarView(_ request: JSON?, snapshot: Snapshot, now: Date, calendar: Calendar) throws -> String {
-  let reads = request?["submitted"]?.isTrue == true && request?["action"]?.string == "read-agenda"
+  let reads = CalendarLayout.readsAgenda(request)
   guard case .loaded(let calendars, let events) = snapshot else {
     if reads { throw CalendarAccessDenied() }
     return rowView(
@@ -82,14 +116,19 @@ func calendarView(_ request: JSON?, snapshot: Snapshot, now: Date, calendar: Cal
     .trimmingCharacters(in: .whitespacesAndNewlines)
   let agenda = Agenda(
     events: events, calendars: calendars.filter { !hidden.contains($0.id) }, query: query,
-    showAllDay: settings?["showAllDay"]?.string != "false", now: now, calendar: calendar)
+    showAllDay: settings?["showAllDay"]?.string != "false", now: now, calendar: calendar,
+    layout: CalendarLayout(request))
   if reads { return agenda.read(calendars: calendars, hidden: hidden) }
   guard !agenda.names.isEmpty else {
     return rowView(
       "all-hidden", "All calendars are hidden", "Clear Hidden calendars in Settings ▸ Extensions ▸ Calendar",
       icon: "eye.slash", action: openAction("Open Settings", "wicket://settings"))
   }
-  return agenda.page()
+  switch agenda.layout {
+  case .agenda: return agenda.page()
+  case .week: return agenda.week()
+  case .month: return agenda.month()
+  }
 }
 
 private let calendarApp = openAction("Open Calendar", "file:///System/Applications/Calendar.app")
@@ -101,7 +140,9 @@ private struct Agenda {
   let now: Date
   let calendar: Calendar
   let today: Date
-  /// Listed in order, at most `eventCap`.
+  let layout: CalendarLayout
+  let window: DateInterval
+  /// Listed in order; the agenda caps the list at `eventCap`.
   let events: [AgendaEvent]
   /// How many matched before the cap.
   let total: Int
@@ -109,23 +150,30 @@ private struct Agenda {
 
   init(
     events: [AgendaEvent], calendars: [AgendaCalendar], query: String, showAllDay: Bool, now: Date,
-    calendar: Calendar
+    calendar: Calendar, layout: CalendarLayout
   ) {
     let names = Dictionary(calendars.map { ($0.id, $0.title) }) { first, _ in first }
-    let window = agendaWindow(now: now, calendar: calendar)
+    let window = layout.window(now: now, calendar: calendar)
+    self.layout = layout
+    self.window = window
     self.names = names
     self.query = query
     self.showAllDay = showAllDay
     self.now = now
     self.calendar = calendar
-    today = window.start
+    today = calendar.startOfDay(for: now)
     style = Date.FormatStyle(
       date: .omitted, time: .omitted, locale: calendar.locale ?? .autoupdatingCurrent, calendar: calendar,
       timeZone: calendar.timeZone)
     let listed = events.filter { event in
       guard !event.cancelled, !event.declined, let name = names[event.calendarID],
-        event.start < window.end, event.isAllDay ? showAllDay && event.end > window.start : event.end > now
+        event.start < window.end, !event.isAllDay || showAllDay
       else { return false }
+      if layout == .agenda {
+        guard event.end > (event.isAllDay ? window.start : now) else { return false }
+      } else {
+        guard event.end > window.start || event.start >= window.start else { return false }
+      }
       return query.isEmpty
         || [event.title, event.location, name].contains { $0.localizedStandardContains(query) }
     }
@@ -140,7 +188,7 @@ private struct Agenda {
       if a.end != b.end { return a.end < b.end }
       return (a.title, a.id) < (b.title, b.id)
     }
-    self.events = Array(sorted.prefix(eventCap))
+    self.events = layout == .agenda ? Array(sorted.prefix(eventCap)) : sorted
     total = sorted.count
   }
 
@@ -153,11 +201,12 @@ private struct Agenda {
       if !query.isEmpty {
         return rowView(
           "no-matches", "No events match “\(query)”", "Searched titles, places and calendars for 7 days",
-          icon: "magnifyingglass", action: nil)
+          icon: "magnifyingglass", action: nil, layout: layout)
       }
       let shown = names.count == 1 ? "1 calendar" : "\(names.count) calendars"
       return rowView(
-        "no-events", "No events in the next 7 days", shown, icon: "calendar", action: calendarApp)
+        "no-events", "No events in the next 7 days", shown, icon: "calendar", action: calendarApp,
+        layout: layout)
     }
     var lines: [String] = []
     // Return with nothing selected runs the first view action: Join for a call that is on or about to
@@ -185,8 +234,111 @@ private struct Agenda {
       lines.append(row(event, &actions))
     }
     if total > events.count { lines += ["", "Showing the first \(events.count) of \(total) events."] }
+    return page(lines, actions: calls.isEmpty ? [calendarApp] + actions : actions + [calendarApp])
+  }
+
+  private func page(_ lines: [String], label: String = "View", actions: [String] = [calendarApp]) -> String {
+    let body = quoted(([CalendarLayout.marker, ""] + lines).joined(separator: "\n"))
+    let back = layout == .agenda ? "" : #","back":{"view":"agenda"}"#
     return
-      #"{"body":\#(quoted(lines.joined(separator: "\n"))),"actions":[\#((calls.isEmpty ? [calendarApp] + actions : actions + [calendarApp]).joined(separator: ","))]}"#
+      #"{"body":\#(body),"fields":[\#(layout.control(label: label))],"actions":[\#(actions.joined(separator: ","))]\#(back)}"#
+  }
+
+  private func dayOffset(_ day: Date, _ count: Int) -> Date {
+    calendar.date(byAdding: .day, value: count, to: day)!
+  }
+
+  private func events(on day: Date) -> [AgendaEvent] {
+    let end = dayOffset(day, 1)
+    return events.filter { $0.start < end && ($0.end > day || $0.start >= day) }
+  }
+
+  func month() -> String {
+    let leading = (calendar.component(.weekday, from: window.start) - calendar.firstWeekday + 7) % 7
+    let days = calendar.dateComponents([.day], from: window.start, to: window.end).day!
+    let cells = (leading + days + 6) / 7 * 7
+    let month = window.start.formatted(style.month(.wide).year())
+    var lines = ["<columns>"]
+    for cell in 0..<cells {
+      let date = dayOffset(window.start, cell - leading)
+      let weekday = cell < 7 ? date.formatted(style.weekday(.abbreviated)) : nil
+      let label = weekday.map { #" label="\#(attribute($0))""# } ?? ""
+      guard date >= window.start, date < window.end else {
+        lines.append("<tile\(label)/>")
+        continue
+      }
+      let title = date.formatted(style.day())
+      let events = events(on: date)
+      let count = events.isEmpty ? " " : eventCount(events.count)
+      let tone = date == today ? #" tone="accent""# : ""
+      let tag = #"<tile\#(label) title="\#(title)" subtitle="\#(count)"\#(tone)"#
+      if events.isEmpty {
+        lines.append(tag + "/>")
+      } else {
+        let heading = literal(date.formatted(style.weekday(.wide).month(.wide).day().year()))
+        lines += [tag + ">", heading, "", periodRows(events, limit: 12), "</tile>"]
+      }
+    }
+    return page(lines + ["</columns>"], label: month)
+  }
+
+  func week() -> String {
+    let days = (0..<7).map { dayOffset(window.start, $0) }
+    let labels = days.map { date in
+      attribute(
+        date.formatted(style.weekday(.abbreviated)).replacingOccurrences(of: ",", with: "")
+          + " " + date.formatted(style.day()))
+    }
+    let last = days[6].formatted(style.month(.abbreviated).day().year())
+    let period = window.start.formatted(style.month(.abbreviated).day()) + " – " + last
+    var lines: [String] = []
+    let allDay = events.filter(\.isAllDay)
+    if !allDay.isEmpty {
+      let first = title(allDay[0])
+      let summary = allDay.count == 1 ? first : "\(first) +\(allDay.count - 1)"
+      lines += [
+        #"<row title="All-day events" subtitle="\#(attribute(summary))">"#,
+        periodRows(allDay, limit: 12), "</row>",
+      ]
+    }
+    var spans: [(event: AgendaEvent, lane: String, from: Int, to: Int)] = []
+    for (day, lane) in zip(days, labels) {
+      let end = dayOffset(day, 1)
+      for event in events(on: day) where !event.isAllDay {
+        let from = event.start < day ? 0 : minute(event.start)
+        let to = event.end >= end ? 1440 : minute(event.end)
+        spans.append((event, lane, from, max(from + 1, to)))
+      }
+    }
+    let marker =
+      days.firstIndex(of: today).map { #" now="\#(clock(minute(now)))" now-lane="\#(labels[$0])""# } ?? ""
+    let shown = spans.prefix(eventCap)
+    let bounds = shown.isEmpty ? #" from="08:00" to="18:00""# : ""
+    lines.append(#"<timeline lanes="\#(labels.joined(separator: ","))"\#(bounds)\#(marker)>"#)
+    lines += shown.map { span in
+      let slots = #" lane="\#(span.lane)" from="\#(clock(span.from))" to="\#(clock(span.to))""#
+      var actions: [String] = []
+      return row(span.event, &actions, span: slots)
+    }
+    lines.append("</timeline>")
+    let limited = shown.count == spans.count ? "" : " · \(shown.count) of \(spans.count) timed entries"
+    return page(lines, label: period + limited)
+  }
+
+  private func minute(_ date: Date) -> Int {
+    let local = calendar.dateComponents([.hour, .minute], from: date)
+    return local.hour! * 60 + local.minute!
+  }
+
+  private func clock(_ minute: Int) -> String { String(format: "%02d:%02d", minute / 60, minute % 60) }
+
+  private func eventCount(_ count: Int) -> String { count == 1 ? "1 event" : "\(count) events" }
+
+  private func periodRows(_ events: [AgendaEvent], limit: Int) -> String {
+    var actions: [String] = []
+    var rows = events.prefix(limit).map { row($0, &actions) }
+    if events.count > limit { rows.append("Showing the first \(limit) of \(events.count) events.") }
+    return rows.joined(separator: "\n")
   }
 
   /// Calls that are on or start within `joinLead`, each with its first link.
@@ -228,12 +380,14 @@ private struct Agenda {
   }
 
   /// An event's row: its time, title and place, and its facts as the detail Return opens.
-  private func row(_ event: AgendaEvent, _ actions: inout [String]) -> String {
+  private func row(_ event: AgendaEvent, _ actions: inout [String], span: String? = nil) -> String {
     let links = meetingLinks(in: event)
-    var tag = #"<row label="\#(label(event))" title="\#(attribute(title(event)))""#
+    let kind = span == nil ? "row" : "span"
+    let timeLabel = layout == .agenda ? label(event) : event.isAllDay ? "All day" : time(event.start)
+    var tag = #"<\#(kind) label="\#(timeLabel)" title="\#(attribute(title(event)))"\#(span ?? "")"#
     let place = place(event, links)
     if !place.isEmpty { tag += #" subtitle="\#(attribute(place))""# }
-    if !event.isAllDay, event.start <= now { tag += #" value="Now""# }
+    if layout == .agenda, !event.isAllDay, event.start <= now { tag += #" value="Now""# }
     var detail = [property("When", when(event)), property("Calendar", names[event.calendarID] ?? "")]
     let location = event.location.trimmingCharacters(in: .whitespacesAndNewlines)
     if !location.isEmpty, meetingLink(location) == nil { detail.append(property("Location", location)) }
@@ -248,8 +402,20 @@ private struct Agenda {
         event: event,
         &actions)
     }
-    if !event.notes.isEmpty { detail += ["", plainText(event.notes)] }
-    return tag + ">\n" + detail.joined(separator: "\n") + "\n</row>"
+    if !event.notes.isEmpty {
+      let notes = layout == .agenda ? event.notes : prefix(event.notes, bytes: noteLimit)
+      detail += ["", plainText(notes) + (notes == event.notes ? "" : "…")]
+    }
+    func item(_ detail: [String]) -> String {
+      tag + ">\n" + detail.joined(separator: "\n") + "\n</\(kind)>"
+    }
+    let full = item(detail)
+    // A month's day details share the process's 1 MiB reply with the grid and each other.
+    let budget = layout == .month ? 2_000 : 8_000
+    if layout != .agenda, quoted(full).utf8.count > budget {
+      return item(Array(detail.prefix(2)) + ["", "Some event details are omitted (size limit)."])
+    }
+    return full
   }
 
   /// A row that opens `url`, or, when its tag would be too long for Wicket to read, a view action instead,
@@ -260,7 +426,8 @@ private struct Agenda {
   ) -> [String] {
     let tag =
       #"<row icon="\#(icon)" title="\#(attribute(title))" subtitle="\#(attribute(subtitle))" open="\#(url.absoluteString)" action="\#(action)"/>"#
-    guard tag.utf8.count > 1024 else { return [tag] }
+    guard tag.utf8.count > (layout == .agenda ? 1024 : 4096) else { return [tag] }
+    guard layout == .agenda else { return [] }
     let link = quoted(url.absoluteString)
     if !actions.contains(where: { $0.contains(link) }) {
       actions.append(openAction(event.map { "\(title): \(self.title($0))" } ?? title, url.absoluteString))
@@ -419,10 +586,16 @@ private func openAction(_ title: String, _ url: String) -> String {
 }
 
 /// One row saying why there is nothing to list, with what fixes it.
-private func rowView(_ id: String, _ title: String, _ subtitle: String, icon: String, action: String?)
-  -> String
-{
-  #"{"items":[{"id":"\#(id)","title":\#(quoted(title)),"subtitle":\#(quoted(subtitle)),"icon":"\#(icon)","actions":[\#(action ?? "")]}]}"#
+private func rowView(
+  _ id: String, _ title: String, _ subtitle: String, icon: String, action: String?,
+  layout: CalendarLayout? = nil
+) -> String {
+  let control =
+    layout.map {
+      #""body":\#(quoted(CalendarLayout.marker)),"fields":[\#($0.control())],"actions":[\#(action ?? "")],"#
+    } ?? ""
+  return
+    #"{\#(control)"items":[{"id":"\#(id)","title":\#(quoted(title)),"subtitle":\#(quoted(subtitle)),"icon":"\#(icon)","actions":[\#(action ?? "")]}]}"#
 }
 
 private func property(_ label: String, _ value: String) -> String {

@@ -1,13 +1,17 @@
 {
   "contract": 2,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Calendar",
-  "description": "Your next seven days from the calendars on this Mac, with Join for the next call.",
+  "description": "Agenda, week, and month from the calendars on this Mac, with Join for the next call.",
   "keyword": "calendar",
   "icon": "calendar",
   "command": ["./main"],
   "permissions": ["calendar"],
   "fields": [{"name": "query", "type": "text", "description": "Search events by title, place or calendar", "placeholder": "Search events"}],
+  "items": [
+    {"id": "week", "title": "Calendar Week", "icon": "calendar", "actions": [{"type": "run", "title": "Show Week", "fields": {"view": "week"}}]},
+    {"id": "month", "title": "Calendar Month", "icon": "calendar", "actions": [{"type": "run", "title": "Show Month", "fields": {"view": "month"}}]}
+  ],
   "settings": [
     {"name": "hiddenCalendars", "type": "text", "description": "Calendar IDs to hide, separated by commas. Ask the agent to find them.", "placeholder": "Hidden calendars"},
     {"name": "showAllDay", "type": "bool", "description": "Show all-day events", "default": true}

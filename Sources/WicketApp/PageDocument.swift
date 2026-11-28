@@ -29,6 +29,7 @@ indirect enum PageBlock: Equatable {
   case columns([PageBlock])
   case fields([Page.Control])
   case chart(Chart, pending: Bool)
+  case timeline(Timeline)
 
   /// Whether the block holds the target, for bringing a block the lazy page hasn't built into view.
   func holds(_ target: String) -> Bool {
@@ -37,6 +38,7 @@ indirect enum PageBlock: Equatable {
     case .rows(let items), .properties(let items), .progresses(let items), .badges(let items):
       items.contains { $0.target == target }
     case .tile(let item): item.target == target
+    case .timeline(let timeline): timeline.spans.contains { $0.item.target == target }
     case .card(_, let blocks), .columns(let blocks), .quote(let blocks): blocks.contains { $0.holds(target) }
     case .list(_, _, let items): items.contains { $0.contains { $0.holds(target) } }
     case .fields(let controls): controls.contains { $0.id == target }
@@ -143,20 +145,42 @@ private struct Builder {
     return nodes
   }
 
+  private struct Container {
+    let name: String
+    let values: [(String, String)]
+    var blocks: [PageBlock] = []
+    var spans: [Timeline.Input] = []
+    var hasOtherContent = false
+  }
+
   mutating func blocks(in parent: Node) -> [PageBlock] {
     var out: [PageBlock] = []
-    var open: [(name: String, icon: String?, blocks: [PageBlock])] = []
-    func add(_ block: PageBlock) {
+    var open: [Container] = []
+    func add(_ block: PageBlock, span: Timeline.Input? = nil) {
       if open.isEmpty {
         Self.append(block, to: &out)
       } else {
+        if let span {
+          open[open.count - 1].spans.append(span)
+        } else {
+          open[open.count - 1].hasOtherContent = true
+        }
         Self.append(block, to: &open[open.count - 1].blocks)
       }
     }
     func close() {
       let box = open.removeLast()
       depth -= 1
-      add(box.name == "card" ? .card(icon: box.icon, box.blocks) : .columns(box.blocks))
+      switch box.name {
+      case "timeline":
+        if !box.hasOtherContent, let timeline = Timeline(box.values, spans: box.spans) {
+          add(.timeline(timeline))
+        } else {
+          for block in box.blocks { add(block) }
+        }
+      case "card": add(.card(icon: Self.value("icon", box.values), box.blocks))
+      default: add(.columns(box.blocks))
+      }
     }
     for node in children(parent) {
       switch cmark_node_get_type(node) {
@@ -164,15 +188,18 @@ private struct Builder {
         if let native = soleToken(node) {
           switch native {
           case .tag(let name, let values, let closing, let selfClosing):
-            if name == "card" || name == "columns" {
+            if name == "card" || name == "columns" || name == "timeline" {
               if closing {
                 if open.last?.name == name { close() }
-              } else if selfClosing {
-                add(name == "card" ? .card(icon: Self.value("icon", values), []) : .columns([]))
               } else {
                 depth += 1
-                open.append((name, Self.value("icon", values), []))
+                open.append(Container(name: name, values: values))
+                if selfClosing { close() }
               }
+            } else if name == "span" {
+              let item = pageItem(values)
+              let span = open.last?.name == "timeline" ? Timeline.Input(item: item, values: values) : nil
+              add(.rows([item]), span: span)
             } else if let block = item(name, values) {
               add(block)
             }

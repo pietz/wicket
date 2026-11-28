@@ -39,7 +39,8 @@ private let states =
     "weather-keyword", "weather-root", "weather-page", "weather-default", "convert-cached-rate",
     "caffeinate-keyword", "caffeinate-off", "caffeinate-draft", "caffeinate-on",
     "caffeinate-started",
-    "calendar-agenda", "calendar-empty-day", "calendar-detail", "calendar-denied",
+    "calendar-agenda", "calendar-week", "calendar-month", "calendar-empty-day", "calendar-detail",
+    "calendar-denied",
     "extension-targets", "extension-detail-larger", "asking", "asking-extension",
     "extension-error", "fields-empty", "fields-filled", "fields-command", "fields-open",
     "fields-long", "fields-three", "history", "history-reopened", "clipboard", "clipboard-image",
@@ -74,6 +75,14 @@ private func expectedText(_ name: String) -> [String] {
   if name == "caffeinate-started" { return ["Awake until", "2 h left", "Turn Off", "Let your Mac sleep"] }
   if name == "calendar-agenda" {
     return ["Calendar", "Design review", "Now until 14:30", "Join Zoom", "Today", "Focus time", "Tomorrow"]
+  }
+  if name == "calendar-week" {
+    return [
+      "Agenda", "Week", "Month", "Team offsite", "Mon 30", "Sun 6", "Design review", "Focus time", "Climbing",
+    ]
+  }
+  if name == "calendar-month" {
+    return ["Agenda", "Week", "Month", "November 2026", "Mon", "Sun", "29", "30", "5 events"]
   }
   if name == "calendar-empty-day" {
     return ["1:1 with Sam", "Tomorrow 10:00", "Join Google Meet", "Nothing else today", "Team offsite"]
@@ -961,7 +970,9 @@ private let installedAgent: Void = {
   /// The bundled Calendar's manifest, printing what its program prints for the recorded week
   /// (`CalendarWeek`): during a call, after the day's last event, an event's detail, and without access.
   private static func configureCalendar(_ state: String, _ model: LauncherModel) async throws {
-    let view = try CalendarWeek.recorded().view(minutes: state == "calendar-empty-day" ? 4 * 60 : 0)
+    let view = try CalendarWeek.recorded().view(
+      minutes: state == "calendar-empty-day" ? 4 * 60 : 0,
+      view: state == "calendar-week" ? "week" : state == "calendar-month" ? "month" : nil)
     let folder = model.agent.folder.appending(path: "extensions/calendar")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     var manifest = try #require(
@@ -1237,13 +1248,13 @@ func panelCapture(_ state: String) async throws {
         controller.presentation == scenario.model.navigator.presentation, "\(state) drew a stale screen")
     }
     try render(scenario.view, to: target)
-    if state == "weather-page" || state == "weather-default" {
+    if ["weather-page", "weather-default", "calendar-week", "calendar-month"].contains(state) {
       let renderer = try #require(scenario.controller?.renderer)
       // Measure before the renderer's cap, which would hide overflowing content.
       let measured = renderer.contentHeight
       #expect(
         measured > 0 && measured.rounded(.up) <= renderer.cap,
-        "Weather content is \(measured) points high; the panel allows \(renderer.cap).")
+        "\(state) content is \(measured) points high; the panel allows \(renderer.cap).")
     }
     let expected = expectedText(state)
     let text = try await recognizedText(in: target, expecting: expected)
@@ -1432,6 +1443,9 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "calendar-agenda", "calendar-empty-day":
     #expect(model.navigator.command?.id == "extension:calendar")
     #expect(model.navigator.body?.contains("### Tomorrow") == true && model.navigator.viewActions.count >= 1)
+  case "calendar-week", "calendar-month":
+    #expect(model.navigator.command?.id == "extension:calendar")
+    #expect(model.navigator.body?.contains(state == "calendar-week" ? "<timeline" : "<columns>") == true)
   case "calendar-detail": #expect(model.navigator.inDetail)
   case "calendar-denied": #expect(Permissions.isGate(model.navigator.results))
   case "history": #expect(model.navigator.command?.id == "history" && model.navigator.results.count == 2)

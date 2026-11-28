@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 /// A view with a body, drawn as one page: what the user can act on stands where it was written. A
-/// target is an item (a `<row>` or `<tile>`) with an action or content, a fenced code block, which
+/// target is an item (a `<row>`, `<tile>`, or `<span>`) with an action or content, a fenced code block, which
 /// copies its text, or one of the view's JSON items, which follow the body. Swift keeps every target's
 /// actions; the page gets only its id (`target`) in a canonical tag with no action in it, so whatever the
 /// page holds can never run anything by itself. An item with neither is only shown, and a `<card>` is
@@ -76,7 +76,10 @@ struct Page: Equatable, Sendable {
       case .shown: return Self.tag(name, nil, values, icon: Self.symbol(values), close: true)
       case .target(let row):
         targets.append(row)
-        return Self.tag(name, row.id, values, icon: row.icon, close: true)
+        return Self.tag(
+          name, row.id, values,
+          icon: name == "row" || values.contains(where: { Self.actionNames.contains($0.0) })
+            ? row.icon : Self.symbol(values), close: true)
       }
     }
     // Tags and code blocks in reading order, as the renderer reads them; a tag inside code is text.
@@ -129,10 +132,11 @@ struct Page: Equatable, Sendable {
       switch (name, current.closing) {
       case (_, true) where Self.containers.contains(name): source += "</\(name)>"
       case (_, true): break  // A stray closing tag.
-      // A container shows what it holds; of its own attributes only a card's icon.
+      // A container shows what it holds and keeps only its own display attributes.
       case _ where Self.containers.contains(name):
         source +=
-          Self.tag(name, nil, [], icon: name == "card" ? Self.symbol(current.values) : nil, close: false)
+          Self.tag(
+            name, nil, current.values, icon: name == "card" ? Self.symbol(current.values) : nil, close: false)
           + (current.selfClosing ? "</\(name)>" : "")
       case _ where current.selfClosing: source += place(name, current.values, detail: nil)
       default:
@@ -197,15 +201,16 @@ struct Page: Equatable, Sendable {
     if let value = fields[name]?.definition.canonical(value) { fields[name]?.value = value }
   }
 
-  /// The tags a page reads and what each shows; its icon comes separately. Rows and tiles are items
-  /// that can be targets, bars and badges are items that only show, and columns and cards contain.
+  /// The slots each tag shows. Rows, tiles, and spans can be targets.
   static let slots: [String: Set<String>] = [
-    "row": ["label", "title", "subtitle", "value"], "tile": ["label", "title", "subtitle", "value"],
+    "row": ["label", "title", "subtitle", "value"], "tile": ["label", "title", "subtitle", "value", "tone"],
+    "span": ["label", "title", "subtitle", "value", "lane", "from", "to"],
+    "timeline": ["lanes", "from", "to", "now", "now-lane"],
     "progress": ["label", "value", "percent"], "badge": ["label", "tone"], "columns": [], "card": [],
     "field": ["name"],
   ]
-  private static let actionable: Set = ["row", "tile"]
-  private static let containers: Set = ["columns", "card"]
+  private static let actionable: Set = ["row", "tile", "span"]
+  private static let containers: Set = ["columns", "card", "timeline"]
 
   /// The canonical tag the renderer gets: the target id, what its kind shows and the icon, never an
   /// action. An attribute the author called `target` is dropped.

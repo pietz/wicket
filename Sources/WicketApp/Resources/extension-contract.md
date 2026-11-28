@@ -173,9 +173,9 @@ Markdown with Wicket tags (same language as agent answers):
 
 - **Items** have `label`, `icon`, `title`, `subtitle`, and `value` slots. The body between tags becomes the detail page.
   - `<row icon="clock" title="Standup" subtitle="Room 2" value="15 min"/>` (consecutive rows group; `label`+`value` only = property row).
-  - `<tile label="Tue" icon="cloud.rain" title="10° 7°"/>` (boxed item).
+  - `<tile label="Tue" icon="cloud.rain" title="10° 7°"/>` (boxed item). Use `tone="accent"`, `"positive"`, `"warning"`, or `"negative"` to tint a tile.
   - `<progress label="Done" value="7 of 10" percent="70"/>` and `<badge label="Ready" tone="positive"/>` (`positive`/`warning`/`negative`). Self-closing, no detail.
-- **Containers:** `<columns>` places tiles, cards, or charts side by side; `<card icon="…">## Title …</card>` draws a raised box. Soft line breaks inside both become hard breaks.
+- **Containers:** `<columns>` places tiles, cards, or charts side by side, with no more than seven tiles per line; `<card icon="…">## Title …</card>` draws a raised box. Soft line breaks inside both become hard breaks.
 - **Item actions** use at most one of `open`, `copy`, `copy-body`, `ask`, or (in extension output only) `run="action-name?k=v"`, titled by `action="…"`. Multiple action attributes or a refused `open` drop the item. Percent-encode separators in `run` action names and field values. Items with an action or detail require `title`. Return normally opens the detail if present, with any action at its end.
 - Use `<row title="Copy report" copy-body="true">…</row>` to make Copy the Return action, with both Copy and Show details in ⌘K. It copies the Markdown source between the tags, trimmed of surrounding whitespace. `copy-body` requires the value `true` and a nonempty body. In a streamed reply, the action becomes available after the reply ends and the closing tag is parsed outside code. If the closing tag is missing, the draft is shown as Markdown without a copy action.
 - Most tags accept up to 4,096 UTF-8 bytes. Chart openings can carry longer category lists within the chart limits below. Right-align numeric table columns with `---:`. Closed fenced code blocks get a copy button, and long code lines wrap. Keep actions where their content stands. Unsupported tags render as literal text. Escape `<` as `&lt;` in external text or use backticks.
@@ -197,6 +197,24 @@ Use a chart for a trend or to compare four or more numbers at a glance.
 - **Series and rules:** Supply comma-separated `labels` on the chart and comma-separated `values` on each self-closing `line`, `area`, or `column`. Empty values are gaps. Wicket pads short lists and truncates long ones to the labels. A legend appears with two or more named series (`name`). Lines take `style="dashed"`. Columns sit side by side, and columns sharing a `stack` key stack. A `rule` marks a numeric `value` or a label `at`; add `label` for its caption and `tone="positive"`, `"warning"`, or `"negative"` to tint a threshold.
 - **Bars or shares:** Omit `labels` and use only `<bar label="…" value="…"/>` for horizontal bars or only `<share label="…" value="…"/>` for a segmented bar. Shares need a positive total. Stacked values and shares must be nonnegative.
 - **Limits:** Up to eight series, 200 labels or values per series, and 24 bars, shares, or rules. Invalid charts show a table of readable data. Charts and their marks ignore action attributes and are skipped by keyboard selection.
+
+### Timelines
+
+Use a timeline for items with durations, such as appointments or phases of a project. Items sharing a lane and overlapping in time sit side by side.
+
+```md
+<timeline lanes="Mon,Tue" from="08:00" to="18:00" now="09:15" now-lane="Mon">
+<span lane="Mon" from="09:00" to="09:30" title="Standup" subtitle="Room 2">
+Bring the checklist and your questions.
+</span>
+<span lane="Tue" from="10:00" to="11:30" title="Planning" open="https://example.com/plan" action="Open plan"/>
+</timeline>
+```
+
+- Supply one to seven unique, comma-separated `lanes`. Each `span` goes directly inside the timeline and names its `lane` exactly. It takes the ordinary item slots, actions, and detail Markdown. Arrow keys and Return work as with rows. Short or narrow spans may show just a colored block.
+- Use either numbers or clock values (`HH:MM`, from `00:00` through `24:00`) throughout. Omit the timeline's `from` and/or `to` to derive bounds from its spans. Derived clock bounds round to hours and try to show at least four hours. Give both bounds to show an empty timeline. A span must have `to` greater than `from` and intersect the axis.
+- Optional `now` marks a value across the grid. Add `now-lane` to mark it in just one lane.
+- Up to 100 spans. Invalid timelines fall back to ordinary rows, keeping their actions and details.
 
 ### Canvas fields
 
@@ -261,7 +279,7 @@ In Settings, **Ask Agent to Merge** is available for active overrides and copies
 - **Weather (`weather`):** `weather <city>` looks up an inline summary as soon as the city has four non-space characters after an optional “in”. A lookup with no result returns an empty list. The summary's run action submits the city for a full forecast. The command uses `submit:true`. A request with an empty city loads the configured `defaultCity` immediately. A city supplied on a link or command hotkey waits for submission. Weather caches geocoding and forecasts for 10 minutes in `WICKET_DATA_DIR`.
 - **Quicklinks (`links-search`, `wicket://links-search`):** Personal bookmarks and site searches. See the recipe below.
 - **Caffeinate (`caffeinate`):** Keeps the Mac and display awake. Fields: `hours` (text, so `caff 2` fills it), plus `minutes` and `seconds`. A submitted request with a duration starts a timer, as does action `start`. With no duration or zero, it runs until turned off. Action `stop` turns it off. Unsubmitted requests only list the state. As the one deliberate exception to never daemonizing, it starts `/usr/bin/caffeinate -d -i [-t seconds]` in its own session so the timer outlives the request and Wicket. It records the pid, start time and uptime deadline in `WICKET_DATA_DIR`, under a lock for submitted requests, and replaces the previous timer.
-- **Calendar (`calendar`):** A read-only 7-day agenda from the Mac's calendars (declares `calendar`). The page leads with the next timed event or the calls on now; Return with nothing selected joins a Meet, Zoom, Teams, or Webex call that is on or starts within 10 minutes. The `query` field filters titles, places, and calendar names. Settings: `hiddenCalendars` (comma-separated calendar IDs) and `showAllDay` (default `true`). To answer questions about the user's schedule, run `Wicket --extension calendar --submitted --action read-agenda` (optionally `--input TEXT` to filter): `body` lists every calendar's title and ID, and each event is an item with a stable ID (the event's ID, plus the original occurrence for a repeat), its time and calendar in `subtitle`, and its facts, links, and invitation notes in `detail`. The reply stays under 1 MB: notes over 4,000 bytes are cut, and if needed later events omit place, links, and notes (the `body` says so; filter with `--input` to read them). With no calendars or all hidden, `items` is empty and `body` says why. Without Calendar access it fails with an `error`, unlike an empty agenda.
+- **Calendar (`calendar`):** A read-only calendar from the Mac's calendars (declares `calendar`). Agenda defaults to the next seven days. Switch to the current Week or Month on the page, or bind `wicket://calendar?item=week` or `wicket://calendar?item=month` as a hotkey. The agenda leads with the next timed event or the calls on now; Return with nothing selected joins a Meet, Zoom, Teams, or Webex call that is on or starts within 10 minutes. The `query` field filters titles, places, and calendar names. Settings: `hiddenCalendars` (comma-separated calendar IDs) and `showAllDay` (default `true`). To answer questions about the user's schedule, run `Wicket --extension calendar --submitted --action read-agenda` (optionally `--input TEXT` to filter): `body` lists every calendar's title and ID, and each event is an item with a stable ID (the event's ID, plus the original occurrence for a repeat), its time and calendar in `subtitle`, and its facts, links, and invitation notes in `detail`. The reply stays under 1 MB: notes over 4,000 bytes are cut, and if needed later events omit place, links, and notes (the `body` says so; filter with `--input` to read them). With no calendars or all hidden, `items` is empty and `body` says why. Without Calendar access it fails with an `error`, unlike an empty agenda.
 
 ## Recipes
 

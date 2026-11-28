@@ -24,6 +24,7 @@ private func kinds(_ blocks: [PageBlock]) -> [String] {
     case .columns(let blocks): "columns(\(kinds(blocks).joined(separator: ",")))"
     case .fields(let controls): "fields\(controls.count)"
     case .chart(_, let pending): pending ? "chart…" : "chart"
+    case .timeline(let timeline): "timeline\(timeline.spans.count)"
     }
   }
 }
@@ -322,4 +323,81 @@ private func kinds(_ blocks: [PageBlock]) -> [String] {
   #expect(PalettePanel.extendsSelection(try arrow(124, [.shift])))
   #expect(!PalettePanel.extendsSelection(try arrow(124, [.numericPad, .function])))
   #expect(!PalettePanel.extendsSelection(try arrow(124, [.shift, .command, .numericPad])))
+}
+
+@MainActor @Test func timelineUsesOrdinaryTargetsAndPlacesOverlapsToScale() throws {
+  let page = Page(
+    body: """
+      <timeline lanes="Build,Ship" now="09:45" now-lane="Build">
+      <span lane="Build" from="09:00" to="10:00" title="Compile" subtitle="Release" icon="hammer">
+      <row label="Machine" value="Mac"/>
+      </span>
+      <span lane="Build" from="09:30" to="10:30" title="Test" open="https://example.com"/>
+      <span lane="Build" from="10:30" to="11:00" title="Package"/>
+      <span lane="Ship" from="11:30" to="12:00" title="Publish"/>
+      </timeline>
+      """, runs: false)
+  let document = PageDocument(page, turn: "t", streaming: false)
+  guard case .timeline(let timeline)? = document.blocks.first else {
+    Issue.record("Expected a timeline")
+    return
+  }
+  #expect(timeline.lanes == ["Build", "Ship"])
+  #expect(timeline.range == 480...720)
+  #expect(timeline.ticks == [480, 540, 600, 660, 720])
+  #expect(timeline.marker == Timeline.Marker(value: 585, lane: 0))
+  #expect(timeline.spans.map(\.column) == [0, 1, 0, 0])
+  #expect(timeline.spans.map(\.columns) == [2, 2, 1, 1])
+  #expect(timeline.spans.first?.item.icon == "hammer")
+  #expect(timeline.fraction(600) == 0.5)
+  #expect(page.targets.map(\.title) == ["Compile", "Test"])
+  #expect(document.blocks[0].holds(page.targets[0].id))
+  #expect(page.targets[1].actions.first?.kind == .open(URL(string: "https://example.com")!))
+  if case .detail(let details, _)? = page.targets[0].actions.first?.kind {
+    #expect(details.contains("Machine"))
+  } else {
+    Issue.record("Compile should open its detail")
+  }
+}
+
+@MainActor @Test func timelinesAcceptNumericPositionsAndFallBackToRows() throws {
+  let numeric = document(
+    """
+    <timeline lanes="Batch" from="0" to="10">
+    <span lane="Batch" from="-2" to="2" title="Prepare"/>
+    <span lane="Batch" from="3" to="7" title="Process" copy="processed"/>
+    </timeline>
+    """)
+  guard case .timeline(let timeline)? = numeric.blocks.first else {
+    Issue.record("Expected a timeline")
+    return
+  }
+  #expect(!timeline.clock && timeline.ticks == [0, 2, 4, 6, 8, 10])
+  #expect(timeline.spans[0].from == 0 && timeline.spans[0].to == 2)
+
+  let invalid = Page(
+    body: """
+      <timeline lanes="Batch">
+      <span lane="Missing" from="2" to="4" title="Still readable" copy="x"/>
+      </timeline>
+      """, runs: false)
+  let blocks = PageDocument(invalid, turn: "t", streaming: false).blocks
+  #expect(kinds(blocks) == ["rows1"])
+  #expect(blocks.first?.holds(invalid.targets[0].id) == true)
+  #expect(kinds(document("`<timeline lanes='X'><span lane='X'/></timeline>`").blocks) == ["p"])
+}
+
+@MainActor @Test func tileColumnsWrapAfterSevenEvenWithRoomForMore() {
+  let renderer = NativePageRenderer()
+  func height(_ count: Int) -> CGFloat {
+    let tiles = (1...count).map { #"<tile title="\#($0)" subtitle="Event"/>"# }
+    let page = Page(body: (["<columns>"] + tiles + ["</columns>"]).joined(separator: "\n"), runs: false)
+    renderer.update(page, turn: "grid", width: 1000)
+    return renderer.contentHeight
+  }
+  let firstRow = height(7)
+  let secondRow = height(8)
+  #expect(secondRow > firstRow + 30)
+  #expect(height(14) == secondRow)
+  #expect(height(15) > secondRow + 30)
 }
