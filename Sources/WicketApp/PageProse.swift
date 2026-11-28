@@ -34,6 +34,22 @@ struct PageProse: NSViewRepresentable {
 
 /// The prose's text view: selectable, not editable, drawing nothing behind its text, with a copy
 /// button on each code block that copies.
+/// Inline code and badges sit on rounded chips, as on the web; TextKit fills their background square.
+private final class ProseLayoutManager: NSLayoutManager {
+  override func fillBackgroundRectArray(
+    _ rects: UnsafePointer<NSRect>, count: Int, forCharacterRange range: NSRange, color: NSColor
+  ) {
+    // The selection fills through here too, and stays square.
+    guard let storage = textStorage, range.location < storage.length,
+      storage.attribute(.backgroundColor, at: range.location, effectiveRange: nil) as? NSColor == color
+    else { return super.fillBackgroundRectArray(rects, count: count, forCharacterRange: range, color: color) }
+    for index in 0..<count {
+      let rect = rects[index].insetBy(dx: -2, dy: 1)
+      NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
+    }
+  }
+}
+
 final class ProseTextView: NSTextView {
   struct Input: Equatable {
     let blocks: [PageBlock]
@@ -77,7 +93,7 @@ final class ProseTextView: NSTextView {
 
   init() {
     let storage = NSTextStorage()
-    let layout = NSLayoutManager()
+    let layout = ProseLayoutManager()
     storage.addLayoutManager(layout)
     let container = NSTextContainer(size: NSSize(width: 640, height: CGFloat.greatestFiniteMagnitude))
     container.lineFragmentPadding = 0
@@ -375,9 +391,13 @@ private final class RoundedBlock: NSTextBlock {
         ? PageMetrics.titleSize
         : level == 1 ? PageMetrics.headlineSize : level == 2 ? PageMetrics.titleSize : PageMetrics.bodySize
       let font = font(size, .semibold)
+      // VoiceOver's heading navigation reads the level; size alone doesn't make a heading.
+      let heading =
+        style(before: before, indent: indent, hanging: hanging, blocks: boxes)
+        .mutableCopy() as! NSMutableParagraphStyle
+      heading.headerLevel = level
       paragraph(
-        lead(attributed(inline, font: font, color: ink), font),
-        style(before: before, indent: indent, hanging: hanging, blocks: boxes),
+        lead(attributed(inline, font: font, color: ink), font), heading,
         lines: (font, size == PageMetrics.headlineSize ? PageMetrics.headline : PageMetrics.heading))
     case .paragraph(let inline):
       let grey = !boxed && { if case .heading(1, _) = previous { true } else { false } }() || !boxes.isEmpty
@@ -465,8 +485,11 @@ private final class RoundedBlock: NSTextBlock {
             case .center: .center
             case .trailing: .right
             }
+          // An empty cell still needs a character to carry its block, or the line break before the
+          // next cell would add a blank line to the previous one.
+          let content = attributed(cell, font: font, color: header ? muted : ink)
           paragraph(
-            attributed(cell, font: font, color: header ? muted : ink),
+            content.length > 0 ? content : NSAttributedString(string: " ", attributes: [.font: font]),
             style(
               before: row == 0 ? before : 0, indent: indent, blocks: boxes + [box],
               alignment: alignment), lines: (font, PageMetrics.body))

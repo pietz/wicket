@@ -43,9 +43,11 @@ class PalettePanel: NSPanel {
     // The first key after summon must find the field even before SwiftUI finishes its update.
     let flagsOnly = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
     let permissionPending = target?.permissionPending == true
-    // A page's read-only text keeps a selection, not typing.
+    // A page's read-only text keeps a selection, not typing, and ⇧← and ⇧→ extend that selection.
     let editing = (firstResponder as? NSTextView)?.isEditable == true || firstResponder is NSTextField
-    if !permissionPending, !editing,
+    let extending =
+      firstResponder is NSTextView && flagsOnly == .shift && [123, 124].contains(Int(event.keyCode))
+    if !permissionPending, !editing, !extending,
       flagsOnly.isDisjoint(with: [.command, .control]),
       ![48, 53, 36, 76, 125, 126].contains(Int(event.keyCode)),
       let field

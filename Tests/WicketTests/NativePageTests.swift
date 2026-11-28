@@ -281,3 +281,31 @@ private func kinds(_ blocks: [PageBlock]) -> [String] {
   #expect(try white(.aqua) < 0.5)
   #expect(try white(.darkAqua) > 0.5)
 }
+
+@MainActor @Test func aProgressFromAnEmptyTotalStillDraws() {
+  // A program dividing by an empty total sends `nan`; measuring the page draws its accessibility label.
+  let renderer = NativePageRenderer()
+  renderer.update(
+    Page(body: "<progress label=\"Disk\" percent=\"nan\"/>", runs: false), turn: "a", streaming: false)
+  #expect(renderer.height > 0)
+}
+
+@MainActor @Test func emptyTableCellsKeepTheirOwnLinesAndHeadingsTheirLevel() {
+  let text = prose("## Plan\n\n| Step | When | Who |\n|---|---|---|\n| Build |  | Ana |")
+  func blocks(at location: Int) -> [NSTextBlock] {
+    (text.attribute(.paragraphStyle, at: location, effectiveRange: nil) as? NSParagraphStyle)?.textBlocks
+      ?? []
+  }
+  // Every line break belongs to the cell it ends, so the empty middle cell adds no line to "Build".
+  let string = text.string as NSString
+  var location = string.range(of: "Build").location
+  var cells: [Int] = []
+  while location < string.length {
+    let line = string.lineRange(for: NSRange(location: location, length: 0))
+    if let cell = blocks(at: line.location).last as? NSTextTableBlock { cells.append(cell.startingColumn) }
+    location = NSMaxRange(line)
+  }
+  #expect(cells == [0, 1, 2])
+  let heading = text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+  #expect(heading?.headerLevel == 2)
+}

@@ -409,10 +409,12 @@ private struct PageProgresses: View {
             Spacer(minLength: 8)
             if let value = item.value { Text(value).foregroundStyle(Ink.secondary) }
           }
-          ProgressView(value: min(100, max(0, item.percent ?? 0)), total: 100).progressViewStyle(.linear)
+          // A program's percent can be computed from an empty total, so `nan` must not reach `Int`.
+          let percent = item.percent.flatMap { $0.isFinite ? min(100, max(0, $0)) : nil } ?? 0
+          ProgressView(value: percent, total: 100).progressViewStyle(.linear)
             .tint(Color.accentColor)
             .accessibilityLabel(item.label ?? "")
-            .accessibilityValue(item.value ?? "\(Int(item.percent ?? 0)) percent")
+            .accessibilityValue(item.value ?? "\(Int(percent)) percent")
         }
       }
     }

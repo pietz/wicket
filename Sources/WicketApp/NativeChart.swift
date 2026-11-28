@@ -32,7 +32,7 @@ struct NativeChart: View {
         shares
       } else if !chart.invalid, chart.plot {
         plot
-        if showsLegend { legend(chart.series.enumerated().map { chart.seriesName($0.element, $0.offset) }) }
+        if namedSeries.count >= 2 { legend(namedSeries) }
       } else {
         fallback
       }
@@ -116,7 +116,7 @@ struct NativeChart: View {
       .frame(height: 18)
       .accessibilityHidden(true)
       legend(
-        chart.marks.map(\.label),
+        chart.marks.enumerated().map { ($0.offset, $0.element.label) },
         values: chart.marks.map { chart.withUnit(Chart.compact($0.value ?? 0)) })
     }
     .accessibilityElement(children: .contain)
@@ -125,12 +125,12 @@ struct NativeChart: View {
 
   /// The series' names under the plot, or the shares' with their values: a dot in each one's colour and
   /// the name in ink.
-  private func legend(_ names: [String], values: [String]? = nil) -> some View {
+  private func legend(_ entries: [(color: Int, name: String)], values: [String]? = nil) -> some View {
     PageFlow(spacing: context.size(16)) {
-      ForEach(names.indices, id: \.self) { index in
+      ForEach(entries.indices, id: \.self) { index in
         HStack(spacing: 5) {
-          Circle().fill(color(index)).frame(width: 7, height: 7).accessibilityHidden(true)
-          Text(names[index])
+          Circle().fill(color(entries[index].color)).frame(width: 7, height: 7).accessibilityHidden(true)
+          Text(entries[index].name)
           if let values { Text(values[index]).foregroundStyle(Ink.secondary) }
         }
         .accessibilityElement(children: .combine)
@@ -139,9 +139,9 @@ struct NativeChart: View {
     .accessibilityHidden(values == nil)
   }
 
-  private var showsLegend: Bool {
-    chart.series.enumerated().filter { !chart.seriesName($0.element, $0.offset).isEmpty }.count >= 2
-      && chart.series.allSatisfy { !$0.label.isEmpty }
+  /// Named series keep their plot colours in the legend; an unnamed one is simply left out.
+  private var namedSeries: [(color: Int, name: String)] {
+    chart.series.enumerated().filter { !$0.element.label.isEmpty }.map { ($0.offset, $0.element.label) }
   }
 
   /// A gap in a series starts a new segment, so a line never bridges it.
@@ -195,6 +195,10 @@ struct NativeChart: View {
     let shown = Set(shownCategories)
     let categories = chart.labels.indices.map(String.init)
     let segmentCounts = Dictionary(grouping: points, by: \.segment).mapValues(\.count)
+    // A reading between two gaps has no line to draw, so it shows as a dot.
+    @ViewBuilder func singleton(_ point: Point) -> some View {
+      if segmentCounts[point.segment] == 1 { Circle().fill(color(point.series)).frame(width: 6) }
+    }
     let narrow = plotWidth < 300
     let groupsBySeries = series.indices.map { series[$0].stack.map { "stack:" + $0 } ?? "series:\($0)" }
     // As wide as the web's columns: at most 9% of the plot, sharing 78% of a category with its group.
@@ -218,9 +222,10 @@ struct NativeChart: View {
           .foregroundStyle(
             chosen.map { $0 == point.ordinal ? color(0) : Ink.chartNeutral } ?? color(point.series))
         case .area:
+          // Each area fills from zero, as its outline shows; Swift Charts would stack them.
           AreaMark(
             x: x, y: .value(names[point.series], point.value),
-            series: .value("Segment", point.segment)
+            series: .value("Segment", point.segment), stacking: .unstacked
           )
           .foregroundStyle(
             LinearGradient(
@@ -234,6 +239,7 @@ struct NativeChart: View {
           .accessibilityLabel(chart.labels[point.category])
           .accessibilityValue(chart.withUnit(Chart.compact(point.value)))
           .lineStyle(StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+          .symbol { singleton(point) }
         default:
           LineMark(
             x: x, y: .value(names[point.series], point.value),
@@ -247,11 +253,7 @@ struct NativeChart: View {
               lineWidth: lineWidth, lineCap: .round, lineJoin: .round,
               dash: mark.style == "dashed" ? [4, 4] : [])
           )
-          .symbol {
-            if segmentCounts[point.segment] == 1 {
-              Circle().fill(color(point.series)).frame(width: 6)
-            }
-          }
+          .symbol { singleton(point) }
         }
       }
       ForEach(rules.indices, id: \.self) { index in
