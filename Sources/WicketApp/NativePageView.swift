@@ -166,17 +166,26 @@ private struct PageBlockView: View {
       PageProse(blocks: [block], boxed: true, previous: nil)
     case .rows(let items): PageRows(items: items)
     case .properties(let items): PageProperties(items: items)
-    case .tile(let item): PageTile(item: item)
+    case .tile(let item):
+      if item == PageItem() {
+        Color.clear.frame(height: 0).accessibilityHidden(true)
+      } else {
+        PageTile(item: item)
+      }
     case .progresses(let items): PageProgresses(items: items)
     case .badges(let items):
       PageFlow(spacing: 6) { ForEach(items.indices, id: \.self) { PageBadge(item: items[$0]) } }
     case .card(let icon, let blocks): PageCard(icon: icon, blocks: blocks)
-    case .columns(let blocks):
+    case .columns(let blocks, let labels):
       let wide = blocks.contains { if case .tile = $0 { false } else { true } }
       PageColumns(
-        minimum: wide ? 200 : 72, spacing: context.size(8),
-        rowSpacing: wide ? nil : context.size(5), most: wide ? Int.max : 7
+        minimum: labels.isEmpty ? (wide ? 200 : 72) : 1, spacing: context.size(8),
+        rowSpacing: wide ? nil : context.size(5), most: labels.isEmpty ? (wide ? Int.max : 7) : labels.count
       ) {
+        ForEach(labels.indices, id: \.self) { index in
+          Text(labels[index]).font(context.small.weight(.medium)).foregroundStyle(Ink.secondary)
+            .lineLimit(1).frame(maxWidth: .infinity)
+        }
         ForEach(blocks.indices, id: \.self) {
           PageBlocks(blocks: [blocks[$0]], boxed: true)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

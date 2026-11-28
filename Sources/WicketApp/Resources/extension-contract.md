@@ -175,7 +175,7 @@ Markdown with Wicket tags (same language as agent answers):
   - `<row icon="clock" title="Standup" subtitle="Room 2" value="15 min"/>` (consecutive rows group; `label`+`value` only = property row).
   - `<tile label="Tue" icon="cloud.rain" title="10° 7°"/>` (boxed item). Use `tone="accent"`, `"positive"`, `"warning"`, or `"negative"` to tint a tile.
   - `<progress label="Done" value="7 of 10" percent="70"/>` and `<badge label="Ready" tone="positive"/>` (`positive`/`warning`/`negative`). Self-closing, no detail.
-- **Containers:** `<columns>` places tiles, cards, or charts side by side, with no more than seven tiles per line; `<card icon="…">## Title …</card>` draws a raised box. Soft line breaks inside both become hard breaks.
+- **Containers:** `<columns>` places tiles, cards, or charts side by side, with no more than seven tiles per line. Optional comma-separated `labels` name up to seven columns in an unboxed header row. An empty `<tile/>` reserves a transparent cell. `<card icon="…">## Title …</card>` draws a raised box. Soft line breaks inside both become hard breaks.
 - **Item actions** use at most one of `open`, `copy`, `copy-body`, `ask`, or (in extension output only) `run="action-name?k=v"`, titled by `action="…"`. Multiple action attributes or a refused `open` drop the item. Percent-encode separators in `run` action names and field values. Items with an action or detail require `title`. Return normally opens the detail if present, with any action at its end.
 - Use `<row title="Copy report" copy-body="true">…</row>` to make Copy the Return action, with both Copy and Show details in ⌘K. It copies the Markdown source between the tags, trimmed of surrounding whitespace. `copy-body` requires the value `true` and a nonempty body. In a streamed reply, the action becomes available after the reply ends and the closing tag is parsed outside code. If the closing tag is missing, the draft is shown as Markdown without a copy action.
 - Most tags accept up to 4,096 UTF-8 bytes. Chart openings can carry longer category lists within the chart limits below. Right-align numeric table columns with `---:`. Closed fenced code blocks get a copy button, and long code lines wrap. Keep actions where their content stands. Unsupported tags render as literal text. Escape `<` as `&lt;` in external text or use backticks.
@@ -211,9 +211,9 @@ Bring the checklist and your questions.
 </timeline>
 ```
 
-- Supply one to seven unique, comma-separated `lanes`. Each `span` goes directly inside the timeline and names its `lane` exactly. It takes the ordinary item slots, actions, and detail Markdown. Arrow keys and Return work as with rows. Short or narrow spans may show just a colored block.
-- Use either numbers or clock values (`HH:MM`, from `00:00` through `24:00`) throughout. Omit the timeline's `from` and/or `to` to derive bounds from its spans. Derived clock bounds round to hours and try to show at least four hours. Give both bounds to show an empty timeline. A span must have `to` greater than `from` and intersect the axis.
-- Optional `now` marks a value across the grid. Add `now-lane` to mark it in just one lane.
+- Supply one to seven unique, comma-separated `lanes`. Each `span` goes directly inside the timeline and names its `lane` exactly. It takes the ordinary item slots, actions, and detail Markdown. Arrow keys and Return work as with rows. Spans are tall enough for a single-line title and expand to show longer durations. Titles truncate to fit.
+- Use either numbers or clock values (`HH:MM`, through `48:00` for elapsed-time axes) throughout. Omit the timeline's `from` and/or `to` to derive bounds from its spans. Derived clock bounds round to hours and try to show at least four hours. Give both bounds to show an empty timeline. A span must have `to` greater than `from` and intersect the axis.
+- Optional `now` marks a value across the grid. Set `now-lane` to highlight that lane’s heading and limit the line to that lane.
 - Up to 100 spans. Invalid timelines fall back to ordinary rows, keeping their actions and details.
 
 ### Canvas fields

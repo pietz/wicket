@@ -12,20 +12,23 @@ struct Timeline: Equatable {
     let lane: Int
     let from: Double
     let to: Double
-    var column = 0
-    var columns = 1
   }
 
-  struct Marker: Equatable {
-    let value: Double
-    let lane: Int?
+  struct Placement {
+    let top: Double
+    let bottom: Double
+    var column = 0
+    var columns = 1
+
+    var height: Double { bottom - top }
   }
 
   let lanes: [String]
   let range: ClosedRange<Double>
   let clock: Bool
-  let marker: Marker?
-  private(set) var spans: [Span]
+  let marker: Double?
+  let nowLane: Int?
+  let spans: [Span]
 
   init?(_ values: [(String, String)], spans inputs: [Input]) {
     func value(_ key: String) -> String? { values.first { $0.0 == key }?.1 }
@@ -42,7 +45,7 @@ struct Timeline: Equatable {
       if !clock { return Double(text).flatMap { $0.isFinite ? $0 : nil } }
       let parts = text.split(separator: ":", omittingEmptySubsequences: false)
       guard parts.count == 2, let hour = Int(parts[0]), let minute = Int(parts[1]),
-        (0...24).contains(hour), (0..<60).contains(minute), hour < 24 || minute == 0
+        (0...48).contains(hour), (0..<60).contains(minute), hour < 48 || minute == 0
       else { return nil }
       return Double(hour * 60 + minute)
     }
@@ -69,7 +72,7 @@ struct Timeline: Equatable {
       value("to") != nil
       ? number(value("to"))
       : end.map {
-        clock ? min(1440, max($0, (lower ?? $0) + 240)) : $0
+        clock ? min(max(1440, $0), max($0, (lower ?? $0) + 240)) : $0
       }
     guard let lower, let upper, upper > lower, (upper - lower).isFinite,
       (upper - lower) / 5 > 0, spans.allSatisfy({ $0.to > lower && $0.from < upper })
@@ -78,16 +81,15 @@ struct Timeline: Equatable {
     self.lanes = lanes
     range = lower...upper
     self.clock = clock
-    let markerLane = value("now-lane").flatMap { lanes.firstIndex(of: $0) }
-    if let now = number(value("now")), range.contains(now), value("now-lane") == nil || markerLane != nil {
-      marker = Marker(value: now, lane: markerLane)
+    nowLane = value("now-lane").flatMap { lanes.firstIndex(of: $0) }
+    if let now = number(value("now")), range.contains(now), value("now-lane") == nil || nowLane != nil {
+      marker = now
     } else {
       marker = nil
     }
     self.spans = spans.map {
       Span(item: $0.item, lane: $0.lane, from: max(lower, $0.from), to: min(upper, $0.to))
     }
-    placeOverlaps()
   }
 
   var ticks: [Double] {
@@ -114,27 +116,44 @@ struct Timeline: Equatable {
     return String(format: "%02d:%02d", minutes / 60, minutes % 60)
   }
 
-  private mutating func placeOverlaps() {
+  func placements(height: Double, minimum: Double) -> [Placement] {
+    let minimum = min(height, minimum)
+    var placements = spans.map { span in
+      let start = fraction(span.from) * height
+      let end = fraction(span.to) * height - 1
+      if end - start >= minimum { return Placement(top: start, bottom: end) }
+      // Use the gap above a short card before adding a column for an event that starts after it ends.
+      let next = spans.lazy.filter { $0.lane == span.lane && $0.from >= span.to }.map(\.from).min()
+      let limit = next.map { fraction($0) * height } ?? height
+      let top = max(0, min(start, limit - minimum))
+      return Placement(top: top, bottom: top + minimum)
+    }
+    // Minimum-height cards can collide even if their original intervals did not.
     for lane in lanes.indices {
       let ordered = spans.indices.filter { spans[$0].lane == lane }.sorted {
-        (spans[$0].from, spans[$0].to, $0) < (spans[$1].from, spans[$1].to, $1)
+        (placements[$0].top, spans[$0].from, $0) < (placements[$1].top, spans[$1].from, $1)
       }
       var group: [Int] = []
       var ends: [Double] = []
       func finish() {
-        for index in group { spans[index].columns = ends.count }
+        for index in group { placements[index].columns = ends.count }
         group.removeAll(keepingCapacity: true)
         ends.removeAll(keepingCapacity: true)
       }
       for index in ordered {
-        let from = spans[index].from
+        let from = placements[index].top
         if ends.allSatisfy({ $0 <= from }) { finish() }
         let column = ends.firstIndex { $0 <= from } ?? ends.count
-        if column == ends.count { ends.append(spans[index].to) } else { ends[column] = spans[index].to }
-        spans[index].column = column
+        if column == ends.count {
+          ends.append(placements[index].bottom)
+        } else {
+          ends[column] = placements[index].bottom
+        }
+        placements[index].column = column
         group.append(index)
       }
       finish()
     }
+    return placements
   }
 }

@@ -265,6 +265,7 @@ enum AnswerMarkdown {
     var cursor = 0
     var i = 0
     var code = 0
+    var timelines = 0
     // Bound each candidate before invoking regex, and emit unchanged spans only once.
     while i < bytes.count {
       let backslash = bytes[i] == 92 && i + 1 < bytes.count
@@ -291,7 +292,9 @@ enum AnswerMarkdown {
       }
       let candidate = tagEnd(bytes, at: i)
       // A tag still being written, quotes and all, waits: nothing from its `<` on is page yet.
-      if streaming, !escaped, candidate == bytes.count, partial(bytes[(i + 1)...]) {
+      if streaming, !escaped, candidate == bytes.count,
+        partial(bytes[(i + 1)...], inTimeline: timelines > 0)
+      {
         keep(cursor..<i)
         return result
       }
@@ -326,10 +329,11 @@ enum AnswerMarkdown {
         continue
       }
       // Keep literal tags as text so cmark can read them in link labels and titles.
-      guard !escaped, Page.slots[name] != nil else {
+      guard !escaped, Page.slots[name] != nil, name != "span" || timelines > 0 else {
         add(literal(original.isEmpty ? String(decoding: bytes[tag.range], as: UTF8.self) : original))
         continue
       }
+      if name == "timeline", !selfClosing { timelines = max(0, timelines + (closing ? -1 : 1)) }
       result.tags.append(tag)
       let key = nonce + "T\(result.tags.count)END"
       if name == "field", resolve {
@@ -428,11 +432,11 @@ enum AnswerMarkdown {
 
   /// What follows a `<` that may still become a tag: nothing yet, the start of a tag's name, or a whole
   /// name with its attributes. Anything else (`x<y holds`) is text and holds nothing back.
-  private static func partial(_ rest: ArraySlice<UInt8>) -> Bool {
+  private static func partial(_ rest: ArraySlice<UInt8>, inTimeline: Bool) -> Bool {
     let written = rest.first == 47 ? rest.dropFirst() : rest
     let name = written.prefix { (97...122).contains($0) }
     let text = String(decoding: name, as: UTF8.self)
-    let known = Chart.tagNames.union(Page.slots.keys)
+    let known = Chart.tagNames.union(Page.slots.keys).filter { inTimeline || $0 != "span" }
     return name.count == written.count ? known.contains { $0.hasPrefix(text) } : known.contains(text)
   }
 

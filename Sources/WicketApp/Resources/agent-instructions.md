@@ -93,7 +93,7 @@ Content between opening and closing tags becomes the item's detail screen, using
   </chart>
   ```
 - **`timeline`**: duration items in named lanes, with numbers or `HH:MM` on the axis. Use `<timeline lanes="Mon,Tue">` with ordinary items like `<span lane="Mon" from="09:00" to="10:00" title="Workshop"/>`, then `</timeline>`. Spans can have actions and detail Markdown.
-- **`columns`**: side-by-side equal cells for tiles, cards, or charts.
+- **`columns`**: side-by-side equal cells for tiles, cards, or charts. Optional comma-separated `labels` name the columns.
 - **`card`**: raised box for one object (record, status, confirmation draft, changed setting). Starts with `##` title, then rows or text; optional corner `icon`. Lists stay rows; never nest boxes.
 
 ```

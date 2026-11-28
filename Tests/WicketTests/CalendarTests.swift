@@ -432,13 +432,13 @@ private func detailOf(_ row: Row?) -> String? {
   model.press(try #require(HotkeyTarget("wicket://calendar?item=month")))
   await navigator.settled()
   #expect(try request().fields["view"] == "month")
-  #expect(navigator.body?.contains("<columns>") == true)
+  #expect(navigator.body?.contains("<columns labels=") == true)
   let day = try #require(navigator.results.first { $0.row.title == "30" })
   navigator.select(day.id)
   #expect(model.activateReturn())
   #expect(navigator.inDetail)
   #expect(navigator.escape())
-  #expect(navigator.body?.contains("<columns>") == true)
+  #expect(navigator.body?.contains("<columns labels=") == true)
 
   navigator.input = "studio"
   await navigator.settled()
@@ -474,16 +474,17 @@ private func detailOf(_ row: Row?) -> String? {
   #expect(month.back == ["view": "agenda"])
   let page = try page(month)
   let blocks = PageDocument(page, turn: "month", streaming: false).blocks
-  guard case .columns(let cells)? = blocks.last else {
+  guard case .columns(let cells, let labels)? = blocks.last else {
     Issue.record("Expected month tiles")
     return
   }
   #expect(cells.count == 42)
+  #expect(labels == ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
   guard case .tile(let first)? = cells.first, case .tile(let today) = cells[35] else {
     Issue.record("Expected weekday and today tiles")
     return
   }
-  #expect(first.label == "Mon" && first.title == nil)
+  #expect(first == PageItem())
   #expect(today.title == "30" && today.subtitle == "5 events" && today.tone == "accent")
   #expect(page.targets.map(\.title) == ["9", "15", "19", "30"])
   let detail = try #require(detailOf(page.targets.last))
@@ -506,4 +507,58 @@ private func detailOf(_ row: Row?) -> String? {
   let detail = try #require(try detailOf(page(month).targets.first))
   #expect(detail.contains("Showing the first 12 of 120 events."))
   #expect(Page(body: detail, runs: true).targets.count == 12)
+}
+
+@Test func calendarUsesCivilDayBoundariesAfterAMidnightClockChange() throws {
+  let start = try Date("2026-04-25T00:30:00+03:00", strategy: .iso8601)
+  let meeting = AgendaEvent(
+    id: "early", title: "Early meeting", start: start, end: start.addingTimeInterval(1800), calendarID: "work"
+  )
+  let fixture = CalendarWeek(now: start, timeZone: "Africa/Cairo", calendars: [], events: [])
+  let snapshot = Snapshot.loaded(calendars: [AgendaCalendar(id: "work", title: "Work")], events: [meeting])
+  let month = try page(fixture.view(view: "month", snapshot: snapshot))
+  #expect(month.targets.map(\.title) == ["25"])
+  let week = try fixture.view(view: "week", snapshot: snapshot)
+  #expect(try page(week).targets.map(\.title) == ["Early meeting"])
+  #expect(week.body?.contains(#"lane="Sat 25" from="00:30" to="01:00""#) == true)
+}
+
+@Test func calendarWeekPreservesDurationAcrossTheRepeatedHour() throws {
+  let start = try Date("2026-10-25T02:45:00+02:00", strategy: .iso8601)
+  let end = try Date("2026-10-25T02:15:00+01:00", strategy: .iso8601)
+  let late = try Date("2026-10-25T23:30:00+01:00", strategy: .iso8601)
+  let meetings = [
+    AgendaEvent(id: "overnight", title: "Night shift", start: start, end: end, calendarID: "work"),
+    AgendaEvent(
+      id: "late", title: "Wrap", start: late, end: late.addingTimeInterval(1800), calendarID: "work"),
+  ]
+  let fixture = CalendarWeek(now: start, timeZone: "Europe/Berlin", calendars: [], events: [])
+  let snapshot = Snapshot.loaded(calendars: [AgendaCalendar(id: "work", title: "Work")], events: meetings)
+  let week = try page(fixture.view(view: "week", snapshot: snapshot))
+  let blocks = PageDocument(week, turn: "week", streaming: false).blocks
+  guard case .timeline(let timeline)? = blocks.last else {
+    Issue.record("Expected a timeline")
+    return
+  }
+  #expect(timeline.spans.map(\.from) == [165, 1470])
+  #expect(timeline.spans.map(\.to) == [195, 1500])
+  #expect(detailOf(week.targets.first)?.contains("02:45 UTC+02:00–02:15 UTC+01:00") == true)
+}
+
+@Test func calendarMonthReservesRoomForJoinBeforeTruncatingNotes() throws {
+  let fixture = try CalendarWeek.recorded()
+  let link = try #require(URL(string: "https://meet.google.com/abc-defg-hij"))
+  let event = AgendaEvent(
+    id: "long-notes", title: "Planning", start: fixture.now, end: fixture.now.addingTimeInterval(1800),
+    calendarID: "work", notes: String(repeating: "Plan & test. ", count: 160) + "Last paragraph.",
+    url: link)
+  let snapshot = Snapshot.loaded(calendars: [AgendaCalendar(id: "work", title: "Work")], events: [event])
+  let month = try page(fixture.view(view: "month", snapshot: snapshot))
+  let day = Page(body: try #require(detailOf(month.targets.first)), runs: true)
+  let eventDetail = try #require(detailOf(day.targets.first))
+  #expect(eventDetail.contains("Plan &#38; test&#46;"))
+  #expect(eventDetail.hasSuffix("…") && !eventDetail.contains("Last paragraph"))
+  let actions = Page(body: eventDetail, runs: true).targets
+  #expect(actions.map(\.title) == ["Join Google Meet"])
+  #expect(opened(actions.first?.actions.first) == link)
 }

@@ -3,6 +3,7 @@ import SwiftUI
 struct NativeTimeline: View {
   let timeline: Timeline
   @Environment(\.page) private var context
+  @Environment(\.displayScale) private var displayScale
 
   var body: some View {
     GeometryReader { geometry in
@@ -12,11 +13,13 @@ struct NativeTimeline: View {
       let header = context.size(27)
       let top = header + context.size(7)
       let height = max(1, geometry.size.height - top - context.size(10))
+      let placements = timeline.placements(height: height, minimum: context.size(14))
       ZStack(alignment: .topLeading) {
         Rectangle().fill(Ink.tertiary.opacity(0.15)).frame(width: width, height: 1)
           .offset(x: gutter, y: header)
         ForEach(timeline.lanes.indices, id: \.self) { index in
           Text(timeline.lanes[index]).font(context.small.weight(.semibold)).lineLimit(1)
+            .foregroundStyle(index == timeline.nowLane ? Color.accentColor : Ink.primary)
             .frame(width: laneWidth, height: header)
             .offset(x: gutter + CGFloat(index) * laneWidth)
         }
@@ -36,27 +39,28 @@ struct NativeTimeline: View {
             .offset(y: y - 7)
         }
         if let marker = timeline.marker {
-          let x = gutter + CGFloat(marker.lane ?? 0) * laneWidth
-          let y = top + timeline.fraction(marker.value) * height
-          Rectangle().fill(Color.accentColor).frame(width: marker.lane == nil ? width : laneWidth, height: 1)
-            .offset(x: x, y: y)
-            .overlay(alignment: .topLeading) {
-              Circle().fill(Color.accentColor).frame(width: 5, height: 5).offset(x: x - 2, y: y - 2)
+          let x = gutter + CGFloat(timeline.nowLane ?? 0) * laneWidth
+          let y = top + timeline.fraction(marker) * height
+          Rectangle().fill(Color.accentColor)
+            .frame(width: timeline.nowLane == nil ? width : laneWidth, height: 1 / displayScale)
+            .overlay(alignment: .leading) {
+              Circle().fill(Color.accentColor).frame(width: 5, height: 5).offset(x: -2)
             }
+            .offset(x: x, y: y)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
         }
         ForEach(timeline.spans.indices, id: \.self) { index in
           let span = timeline.spans[index]
-          let columnWidth = laneWidth / CGFloat(span.columns)
-          let spanHeight = (timeline.fraction(span.to) - timeline.fraction(span.from)) * height
+          let placement = placements[index]
+          let columnWidth = laneWidth / CGFloat(placement.columns)
           TimelineItem(
             item: span.item, lane: timeline.lanes[span.lane],
-            width: max(1, columnWidth - 3), height: max(1, spanHeight - 1)
+            width: max(1, columnWidth - 3), height: placement.height
           )
           .offset(
-            x: gutter + CGFloat(span.lane) * laneWidth + CGFloat(span.column) * columnWidth + 2,
-            y: top + timeline.fraction(span.from) * height)
+            x: gutter + CGFloat(span.lane) * laneWidth + CGFloat(placement.column) * columnWidth + 2,
+            y: top + placement.top)
         }
       }
       .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
@@ -78,26 +82,22 @@ private struct TimelineItem: View {
   var body: some View {
     let selected = item.target != nil && item.target == selection
     let shape = RoundedRectangle(cornerRadius: 4)
-    let short = height < context.size(12)
     VStack(alignment: .leading, spacing: 1) {
-      if height >= context.size(8), width >= 18 {
-        HStack(alignment: .top, spacing: 2) {
-          if item.icon != nil, !short, width >= 45 { PageIcon(item: item, size: context.size(11)) }
-          Text(item.title ?? "").font(.system(size: context.size(short ? 8 : 10), weight: .medium))
-            .lineLimit(height >= context.size(25) && width >= 48 ? 2 : 1)
-            .allowsTightening(true).minimumScaleFactor(0.85)
-        }
-        if let subtitle = item.subtitle, height >= context.size(42), width >= 54 {
-          Text(subtitle).font(.system(size: context.size(10))).foregroundStyle(Ink.secondary).lineLimit(1)
-        }
+      HStack(spacing: 2) {
+        if item.icon != nil, width >= 45 { PageIcon(item: item, size: context.size(11)) }
+        Text(item.title ?? "").font(.system(size: context.size(10), weight: .medium))
+          .lineLimit(1).allowsTightening(true).minimumScaleFactor(0.85)
+      }
+      if let subtitle = item.subtitle, height >= context.size(36), width >= 54 {
+        Text(subtitle).font(.system(size: context.size(10))).foregroundStyle(Ink.secondary).lineLimit(1)
       }
     }
     .lineHeight(.multiple(factor: 1))
-    .padding(.horizontal, 3)
-    .padding(.vertical, height >= context.size(18) ? 2 : 0)
-    .frame(width: width, height: height, alignment: short ? .leading : .topLeading)
+    .padding(.horizontal, width >= 18 ? 3 : 1)
+    .padding(.top, context.size(1))
+    .frame(width: width, height: height, alignment: .topLeading)
     .background {
-      shape.fill(Color(nsColor: .windowBackgroundColor))
+      shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.88))
       shape.fill(selected ? Ink.selection : Color.accentColor.opacity(0.18))
     }
     .overlay { shape.strokeBorder(Color.accentColor.opacity(selected ? 0.9 : 0.35), lineWidth: 0.5) }

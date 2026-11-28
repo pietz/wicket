@@ -1445,7 +1445,8 @@ func scenariosSetUpTheirState(_ state: String) async throws {
     #expect(model.navigator.body?.contains("### Tomorrow") == true && model.navigator.viewActions.count >= 1)
   case "calendar-week", "calendar-month":
     #expect(model.navigator.command?.id == "extension:calendar")
-    #expect(model.navigator.body?.contains(state == "calendar-week" ? "<timeline" : "<columns>") == true)
+    #expect(
+      model.navigator.body?.contains(state == "calendar-week" ? "<timeline" : "<columns labels=") == true)
   case "calendar-detail": #expect(model.navigator.inDetail)
   case "calendar-denied": #expect(Permissions.isGate(model.navigator.results))
   case "history": #expect(model.navigator.command?.id == "history" && model.navigator.results.count == 2)

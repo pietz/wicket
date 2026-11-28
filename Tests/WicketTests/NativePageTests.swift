@@ -21,7 +21,7 @@ private func kinds(_ blocks: [PageBlock]) -> [String] {
     case .progresses(let items): "progress\(items.count)"
     case .badges(let items): "badges\(items.count)"
     case .card(let icon, let blocks): "card(\(icon ?? ""):\(kinds(blocks).joined(separator: ",")))"
-    case .columns(let blocks): "columns(\(kinds(blocks).joined(separator: ",")))"
+    case .columns(let blocks, _): "columns(\(kinds(blocks).joined(separator: ",")))"
     case .fields(let controls): "fields\(controls.count)"
     case .chart(_, let pending): pending ? "chart…" : "chart"
     case .timeline(let timeline): "timeline\(timeline.spans.count)"
@@ -345,9 +345,10 @@ private func kinds(_ blocks: [PageBlock]) -> [String] {
   #expect(timeline.lanes == ["Build", "Ship"])
   #expect(timeline.range == 480...720)
   #expect(timeline.ticks == [480, 540, 600, 660, 720])
-  #expect(timeline.marker == Timeline.Marker(value: 585, lane: 0))
-  #expect(timeline.spans.map(\.column) == [0, 1, 0, 0])
-  #expect(timeline.spans.map(\.columns) == [2, 2, 1, 1])
+  #expect(timeline.marker == 585 && timeline.nowLane == 0)
+  let placements = timeline.placements(height: 240, minimum: 16)
+  #expect(placements.map(\.column) == [0, 1, 0, 0])
+  #expect(placements.map(\.columns) == [2, 2, 1, 1])
   #expect(timeline.spans.first?.item.icon == "hammer")
   #expect(timeline.fraction(600) == 0.5)
   #expect(page.targets.map(\.title) == ["Compile", "Test"])
@@ -400,4 +401,49 @@ private func kinds(_ blocks: [PageBlock]) -> [String] {
   #expect(secondRow > firstRow + 30)
   #expect(height(14) == secondRow)
   #expect(height(15) > secondRow + 30)
+}
+
+@MainActor @Test func timelineKeepsShortSpansReadableWithoutCoveringTheirNeighbors() throws {
+  let blocks = document(
+    """
+    <timeline lanes="A,B" from="0" to="100" now="101" now-lane="A">
+    <span lane="A" from="0" to="1" title="First"/>
+    <span lane="A" from="2" to="3" title="Second"/>
+    <span lane="A" from="35" to="70" title="Long"/>
+    <span lane="A" from="99" to="100" title="Last"/>
+    <span lane="B" from="0" to="30" title="Long overlap"/>
+    <span lane="B" from="8" to="11" title="Short overlap"/>
+    <span lane="B" from="20" to="40" title="After short overlap"/>
+    </timeline>
+    """
+  ).blocks
+  guard case .timeline(let timeline)? = blocks.first else {
+    Issue.record("Expected a timeline")
+    return
+  }
+  let placements = timeline.placements(height: 100, minimum: 16)
+  #expect(placements.prefix(4).map(\.height) == [16, 16, 34, 16])
+  #expect(placements.map(\.column) == [0, 1, 0, 0, 0, 1, 1])
+  #expect(placements[3].bottom == 100)
+  #expect(placements[5].bottom == placements[6].top)
+  #expect(timeline.marker == nil && timeline.nowLane == 0)
+}
+
+@MainActor @Test func htmlSpansOutsideTimelinesStayLiteral() {
+  let html = #"<span class="status">Build failed</span>"#
+  let body = """
+    \(html)
+
+    <timeline lanes="Build" from="0" to="1">
+    <span lane="Build" from="0" to="1" title="Compile" copy="log"/>
+    </timeline>
+
+    \(html) again.
+    """
+  let page = Page(body: body, runs: false)
+  let blocks = PageDocument(page, turn: "test", streaming: false).blocks
+  #expect(blocks.first?.renderedText == html)
+  #expect(blocks.last?.renderedText == html + " again.")
+  #expect(kinds(blocks) == ["p", "timeline1", "p"])
+  #expect(page.targets.map(\.title) == ["Compile"])
 }

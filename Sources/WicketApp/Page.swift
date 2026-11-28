@@ -56,7 +56,7 @@ struct Page: Equatable, Sendable {
     var cursor = 0
     // Most replies have no tag or code fence: they skip Markdown's parse.
     let reading =
-      Self.slots.keys.contains { body.contains("<" + $0) } || body.contains("<chart")
+      Self.slots.keys.contains { $0 != "span" && body.contains("<" + $0) } || body.contains("<chart")
         || (copies && (body.contains("```") || body.contains("~~~")))
       ? AnswerMarkdown.read(body, streaming: streaming) : nil
     /// The tag whose content is being read, with how deep its own kind nests in it.
@@ -206,7 +206,7 @@ struct Page: Equatable, Sendable {
     "row": ["label", "title", "subtitle", "value"], "tile": ["label", "title", "subtitle", "value", "tone"],
     "span": ["label", "title", "subtitle", "value", "lane", "from", "to"],
     "timeline": ["lanes", "from", "to", "now", "now-lane"],
-    "progress": ["label", "value", "percent"], "badge": ["label", "tone"], "columns": [], "card": [],
+    "progress": ["label", "value", "percent"], "badge": ["label", "tone"], "columns": ["labels"], "card": [],
     "field": ["name"],
   ]
   private static let actionable: Set = ["row", "tile", "span"]
