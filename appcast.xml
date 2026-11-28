@@ -6,6 +6,24 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.10.1</title>
+      <pubDate>Sat, 28 Nov 2026 14:27:44 +0000</pubDate>
+      <sparkle:version>62</sparkle:version>
+      <sparkle:shortVersionString>0.10.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>27.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Calendar Week view, joining calls, and fixes
+
+- **Calendar has a Week view.** Switch between Agenda and Week at the top of the Calendar page. Week shows each day's events on a time grid.
+- **Join calls from the Agenda.** An event with a Meet, Zoom, Teams or Webex link shows the service, and Return joins the call.
+- **Calculator keeps every whole-number digit.** With the default settings, 19.99 × 6 showed "≈ 120"; it now shows 119.94. Precision now limits decimal places only.
+- **Convert accepts ordinary spaces in numbers** like "1 000 km" where digits are grouped with spaces.
+- **Changing the Wicket hotkey to keys an action uses** now gives them to Wicket, as it does at startup, also when another app held the old keys.
+- **Extension pages:** rows after an unfinished code block show normally, and rows with very long IDs open the right item.
+- **A `wicket://agent` link** opens with its own text, or empty, instead of what was typed in the search field.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.10.1</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.10.1/Wicket-0.10.1.dmg" type="application/octet-stream" sparkle:edSignature="U/PfId3tGO3VGuQw29dzEpAhU312UK/kYVfiOwVRoLMlhxXWKhBf3Uqp0qwsanTZkApUC4ZPqnpYQhlndY9HBA==" length="5325672"/>
+    </item>
+    <item>
       <title>Wicket 0.10.0</title>
       <pubDate>Sat, 28 Nov 2026 12:27:26 +0000</pubDate>
       <sparkle:version>61</sparkle:version>
