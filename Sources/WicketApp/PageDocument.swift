@@ -116,7 +116,8 @@ extension PageDocument {
     blocks = AnswerMarkdown.withTree(page.source, streaming: streaming, fields: page.fields) {
       reading, tree, tokens in
       var builder = Builder(
-        reading: reading, tree: tree, tokens: tokens, copies: copies, files: files, icons: icons)
+        reading: reading, tree: tree, tokens: tokens, copies: copies, targets: page.targets, files: files,
+        icons: icons)
       return builder.blocks(in: tree.root)
     }
   }
@@ -131,6 +132,7 @@ private struct Builder {
   let tree: AnswerMarkdown.Tree
   let tokens: NSRegularExpression
   let copies: [Int: String]
+  let targets: [Row]
   let files: [String: URL]
   let icons: [String: ExtensionIcons.Version]
   /// Inside a card or columns each line is its own, so a soft break there is a hard one.
@@ -261,7 +263,11 @@ private struct Builder {
 
   func pageItem(_ values: [(String, String)]) -> PageItem {
     func value(_ key: String) -> String? { Self.value(key, values).flatMap { $0.isEmpty ? nil : $0 } }
-    let target = value("target")
+    let target = value("target").flatMap { reference -> String? in
+      if reference.hasPrefix("#") { return reference }
+      guard let index = Int(reference), targets.indices.contains(index) else { return nil }
+      return targets[index].id
+    }
     return PageItem(
       target: target, label: value("label"), title: value("title"), subtitle: value("subtitle"),
       value: value("value"), percent: value("percent").flatMap(Double.init), tone: value("tone"),

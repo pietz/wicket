@@ -117,8 +117,38 @@ import Testing
   // JSON items follow the body as rows.
   #expect(
     page.source.hasSuffix(
-      "\n\n<row target=\"##0\" title=\"Hash\" icon=\"app\"/>\n\n<row target=\"last\" title=\"Last\" icon=\"app\"/>"
+      "\n\n<row target=\"5\" title=\"Hash\" icon=\"app\"/>\n\n<row target=\"6\" title=\"Last\" icon=\"app\"/>"
     ))
+}
+
+@Test(arguments: ["```", "~~~~"])
+func appendedJSONItemsAreOutsideAnUnclosedFence(_ fence: String) {
+  let row = Row(id: "after", title: "After code", actions: [.copy("value")])
+  let page = Page(body: "\(fence)sh\necho hi", items: [row], runs: true)
+  let document = PageDocument(page, turn: "test", streaming: false)
+  #expect(page.targets == [row])
+  #expect(document.blocks.first == .code("echo hi", target: nil))
+  #expect(document.blocks.last?.holds(row.id) == true)
+}
+
+@Test func appendedJSONItemsResolveTheirFullIDs() {
+  let prefix = String(repeating: "x", count: 300)
+  let ids = [prefix, prefix + "suffix", "both ' and \"", "two\nlines", "0", "#0"]
+  let rows = ids.enumerated().map { index, id in
+    Row(id: id, title: "Item \(index)", actions: [.copy("Value \(index)")])
+  }
+  let page = Page(body: #"<row title="Body" copy="body"/>"#, items: rows, runs: true)
+  let document = PageDocument(page, turn: "test", streaming: false)
+  let items = document.blocks.flatMap { block -> [PageItem] in
+    if case .rows(let items) = block { return items }
+    return []
+  }
+  #expect(items.map(\.title) == ["Body"] + rows.map(\.title))
+  #expect(
+    items.map(\.target) == ["#0", prefix, prefix + "suffix", "both ' and \"", "two\nlines", "0", "##0"])
+  #expect(
+    items.map { item in page.targets.first { $0.id == item.target }?.actions.first }
+      == [.copy("body")] + rows.map { $0.actions.first })
 }
 
 /// A fenced code block copies its text, without the final line break, from a button the host draws; a

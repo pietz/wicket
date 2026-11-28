@@ -4,7 +4,7 @@ import Foundation
 /// A view with a body, drawn as one page: what the user can act on stands where it was written. A
 /// target is an item (a `<row>`, `<tile>`, or `<span>`) with an action or content, a fenced code block, which
 /// copies its text, or one of the view's JSON items, which follow the body. Swift keeps every target's
-/// actions; the page gets only its id (`target`) in a canonical tag with no action in it, so whatever the
+/// actions; the page gets only a reference (`target`) in a canonical tag with no action in it, so whatever the
 /// page holds can never run anything by itself. An item with neither is only shown, and a `<card>` is
 /// only a box: it keeps its icon and nothing else. Every tag keeps only the attributes its kind shows.
 ///
@@ -57,7 +57,7 @@ struct Page: Equatable, Sendable {
     // Most replies have no tag or code fence: they skip Markdown's parse.
     let reading =
       Self.slots.keys.contains { $0 != "span" && body.contains("<" + $0) } || body.contains("<chart")
-        || (copies && (body.contains("```") || body.contains("~~~")))
+        || ((copies || !items.isEmpty) && (body.contains("```") || body.contains("~~~")))
       ? AnswerMarkdown.read(body, streaming: streaming) : nil
     /// The tag whose content is being read, with how deep its own kind nests in it.
     var open: (tag: AnswerMarkdown.Tag, depth: Int, copiesBody: Bool)?
@@ -165,12 +165,13 @@ struct Page: Equatable, Sendable {
       source += text(cursor..<bytes.count)
     }
     let unplaced = controls.filter { fields[$0.name] == nil }
+    if !unplaced.isEmpty || !items.isEmpty, open == nil, let fence = reading?.blocks.last?.closingFence {
+      // Keep appended controls and items outside a final unclosed top-level fence.
+      source += "\n" + fence
+    }
     if !unplaced.isEmpty {
-      // A final unclosed top-level fence would swallow the controls as code.
-      if open == nil, let fence = reading?.blocks.last?.closingFence { source += "\n" + fence }
       source += "\n\n" + unplaced.map(placeControl).joined(separator: "\n")
     }
-    var own: [Row] = []
     var iconRequests: [String: ExtensionIcons.Request] = [:]
     for item in items {
       // An item's detail opens with Return, as a row's content does; its own actions stay in ⌘K.
@@ -180,7 +181,9 @@ struct Page: Equatable, Sendable {
       let row = Row(
         id: item.id.hasPrefix("#") ? "#" + item.id : item.id, title: item.title, subtitle: item.subtitle,
         icon: item.icon, actions: detail + item.actions, keywords: item.keywords, prominent: item.prominent)
-      own.append(row)
+      // JSON IDs survive verbatim in targets, even when they would not fit in a Markdown attribute.
+      let handle = String(targets.count)
+      targets.append(row)
       let values = [("title", row.title)] + (row.subtitle.map { [("subtitle", $0)] } ?? [])
       var symbol = row.icon ?? "app"
       if let iconScope, ExtensionIcons.nativeFile(for: item) == nil {
@@ -188,10 +191,10 @@ struct Page: Equatable, Sendable {
         symbol = choice.symbol
         if !choice.paths.isEmpty { iconRequests[row.id] = .init(paths: choice.paths, scope: iconScope) }
       }
-      source += "\n\n" + Self.tag("row", row.id, values, icon: symbol, close: true)
+      source += "\n\n" + Self.tag("row", handle, values, icon: symbol, close: true)
     }
     self.source = source
-    self.targets = targets + own
+    self.targets = targets
     self.iconRequests = iconRequests
     self.code = code
     self.fields = fields
