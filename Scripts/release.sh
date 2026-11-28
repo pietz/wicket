@@ -80,7 +80,7 @@ item="    <item>
       <pubDate>$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')</pubDate>
       <sparkle:version>$build</sparkle:version>
       <sparkle:shortVersionString>$version</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <sparkle:minimumSystemVersion>27.0</sparkle:minimumSystemVersion>
       <description sparkle:format=\"markdown\"><![CDATA[$(<"$notes")]]></description>
       <sparkle:fullReleaseNotesLink>$repo/releases/tag/v$version</sparkle:fullReleaseNotesLink>
       <enclosure url=\"$url\" type=\"application/octet-stream\" $enclosure/>

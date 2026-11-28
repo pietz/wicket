@@ -14,7 +14,7 @@ A small, fast, native macOS launcher with your own AI agent built in, and extens
 
 ## Rules
 
-- Stack: Swift 6, AppKit + SwiftUI, macOS 26+. Dependencies: `swift-cmark` and `Sparkle` (exact 2.10.1). No WebViews beyond the answer renderer; no new dependencies without a concrete need. Prefer modern Apple APIs (SwiftUI, Observation, Liquid Glass, Swift Testing); use older APIs only where nothing modern works, with a comment saying why.
+- Stack: Swift 6.4, AppKit + SwiftUI, macOS 27. Dependencies: `swift-cmark` and `Sparkle` (exact 2.10.1). No WebViews beyond the answer renderer; no new dependencies without a concrete need. Prefer modern Apple APIs (SwiftUI, Observation, Liquid Glass, Swift Testing); use older APIs only where nothing modern works, with a comment saying why.
 - Concise code, clean architecture, no remains: delete superseded code, settings, tests, docs, and comments in the same change. Prefer deleting to adding; an abstraction needs two real users. Comment only the non-obvious *why*, especially where a reader would otherwise "fix" something deliberate.
 - Core owns what must stay alive between keystrokes, hold a macOS permission, or be the frame (panel, input, voice, Settings, agent harness, extension host, and apps/files/clipboard sources). Everything that turns input into a screen is an extension.
 - Fast path never waits: typing never starts a model, root typing starts a process only for matching `match` patterns, and nothing reruns an open command behind the user's back.

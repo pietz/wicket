@@ -5,7 +5,7 @@ import IOKit
 import Speech
 import Synchronization
 
-/// Apple's macOS 26 on-device pipeline. No fallback recognizer, model download or audio file.
+/// Apple's on-device speech pipeline. No fallback recognizer, model download or audio file.
 @MainActor final class AppleTranscriber: Transcriber {
   private var task: Task<Void, Never>?
   private var microphone: Microphone?

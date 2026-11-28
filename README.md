@@ -14,7 +14,7 @@ brew install --cask pietz/wicket/wicket
 
 Or download `Wicket-<version>.dmg` from the [latest release](https://github.com/pietz/wicket/releases/latest) and drag Wicket to Applications. Wicket checks for updates through Sparkle every six hours by default. When an update is available, a dot appears on the menu bar icon and the next time you open the launcher, **Update Wicket to …** appears above the empty search results. Press Return to read the release notes and choose when to install, or use ⌘K ▸ **Dismiss** to hide the launcher notice until you quit Wicket. You can still open the update from the menu bar or check in Settings ▸ General.
 
-**Requirements:** Apple silicon Mac, macOS 26 (Tahoe) or later. For the agent, install and sign in to [Claude Code](https://claude.com/claude-code) (`claude auth login`) or [Codex](https://github.com/openai/codex) (`codex login`).
+**Requirements:** Apple silicon Mac, macOS 27. For the agent, install and sign in to [Claude Code](https://claude.com/claude-code) (`claude auth login`) or [Codex](https://github.com/openai/codex) (`codex login`).
 
 Upgrading from 0.0.x: old settings and extensions do not carry over; Wicket never reads or deletes 0.0.x files.
 
