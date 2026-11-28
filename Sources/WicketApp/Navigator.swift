@@ -1014,7 +1014,7 @@ final class Navigator {
       } else {
         surface?.perform(.settings)
       }
-    case .agent: fill(address.input ?? input)
+    case .agent: fill(address.input ?? (address.link ? "" : input))
     case .root: arrive(nil, input: address.input ?? "", holding: holding)
     case .command(let behavior):
       var state = commandState(for: behavior, itemHotkey: itemHotkey)

@@ -253,6 +253,18 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   await model.finish()
 }
 
+@MainActor @Test(arguments: [("wicket://agent", ""), ("wicket://agent?input=Why%3F", "Why?")])
+func anAgentLinkDraftsOnlyItsInput(link: String, expected: String) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel.testing(in: root)
+  model.navigator.input = "Unrelated search"
+  try model.navigator.go(#require(url(link)))
+  #expect(model.navigator.input == expected)
+  #expect(model.agent.active && !model.agent.busy && model.agent.question.isEmpty)
+  await model.finish()
+}
+
 @Test func plainStdoutIsAMarkdownBodyAndBrokenJSONStaysAnError() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
