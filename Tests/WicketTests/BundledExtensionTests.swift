@@ -412,6 +412,19 @@ func unitsReadAndWriteTheDecimalComma(input: String, expected: String) async thr
   #expect(view.items.first?.actions == [.copy(String(expected.prefix { $0 != " " }))])
 }
 
+@Test(arguments: [" ", "\u{00A0}", "\u{202F}"])
+func unitsAcceptFrenchGroupingSpaces(_ space: String) async throws {
+  let french = ProviderRequest.NumberMarks(decimal: ",", grouping: "\u{202F}")
+  let input = "1\(space)000 km to m"
+  #expect(try bundled("units").manifest.matches(input))
+  let view = try await runBundled("units", request: ProviderRequest(input: input, locale: french))
+  #expect(view.items.map(\.title) == ["1000000 m"])
+  #expect(view.items.first?.actions == [.copy("1000000")])
+  let invalid = try await runBundled(
+    "units", request: ProviderRequest(input: "1\(space)00 km to m", locale: french))
+  #expect(invalid.items.isEmpty)
+}
+
 @Test(arguments: [
   "10 km", "10 km in kg", "1\(String(repeating: "0", count: 400)) km in mm",
   "1e5 km in mi", "abc", "10 km in", "10 km to frogs", "10 km + 5 mi",

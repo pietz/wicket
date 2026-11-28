@@ -104,7 +104,12 @@ struct Quantity {
   let target: String?
 
   init?(_ text: String, marks: NumberMarks) {
-    let input = Array(text)
+    let input =
+      if let grouping = marks.grouping, grouping.isWhitespace {
+        text.map { " \u{00A0}\u{202F}".contains($0) ? grouping : $0 }
+      } else {
+        Array(text)
+      }
     var at = 0
     func take(_ accepts: (Character) -> Bool) -> ArraySlice<Character> {
       let start = at
